@@ -77,7 +77,9 @@ async function api(action, data = {}) {
       body: JSON.stringify({ token: S.cfg.key, action, ...data }),
     });
   } catch (e) {
-    throw new ApiError('Sin conexión con la hoja', true);
+    if (e.name === 'AbortError') throw new ApiError('La hoja tardó demasiado en responder. Inténtalo de nuevo.', true);
+    if (navigator.onLine === false) throw new ApiError('Sin internet', true);
+    throw new ApiError('No se pudo hablar con el script. Revisa que la implementación tenga acceso «Cualquier persona», que la URL termine en /exec y que sea la implementación más reciente.', true);
   } finally { clearTimeout(t); }
   let j;
   try { j = await r.json(); } catch { throw new ApiError('La URL no responde como se esperaba. Revisa la URL de la implementación.', false); }
