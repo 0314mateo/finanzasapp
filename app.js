@@ -1,5 +1,6 @@
 /* Finanzas · app web instalable (PWA). Sin dependencias: HTML + JS puro. */
 'use strict';
+const APP_VERSION = '4';
 
 // ------------------------------------------------------------------ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -63,6 +64,13 @@ function persist() {
 }
 
 // ------------------------------------------------------------------ API (Apps Script o modo demo)
+const errorTexto = e => ({
+  unauthorized: 'La clave no coincide con la del script. Usa «Diagnosticar la conexión» en Ajustes.',
+  clave_no_configurada: 'En el script la CLAVE sigue siendo la de ejemplo: cámbiala, guarda y publica una Nueva versión.',
+  clave_corta: 'La CLAVE del script tiene menos de 10 caracteres. Usa una más larga y publica una Nueva versión.',
+}[e] || e || 'Error desconocido');
+const limpiarClave = k => String(k || '').replace(/[\s\u200B-\u200D\uFEFF\u00A0'"\u2018\u2019\u201C\u201D]/g, '');
+
 class ApiError extends Error { constructor(m, network) { super(m); this.network = !!network; } }
 
 async function api(action, data = {}) {
@@ -74,16 +82,16 @@ async function api(action, data = {}) {
     r = await fetch(S.cfg.url, {
       method: 'POST', redirect: 'follow', signal: ctl.signal,
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },        // evita la petición previa (CORS) de Google
-      body: JSON.stringify({ token: S.cfg.key, action, ...data }),
+      body: JSON.stringify({ token: limpiarClave(S.cfg.key), action, ...data }),
     });
   } catch (e) {
     if (e.name === 'AbortError') throw new ApiError('La hoja tardó demasiado en responder. Inténtalo de nuevo.', true);
     if (navigator.onLine === false) throw new ApiError('Sin internet', true);
-    throw new ApiError('No se pudo hablar con el script. Revisa que la implementación tenga acceso «Cualquier persona», que la URL termine en /exec y que sea la implementación más reciente.', true);
+    throw new ApiError('No se pudo hablar con el script. Abre Ajustes → «Diagnosticar la conexión» para ver la causa.', true);
   } finally { clearTimeout(t); }
   let j;
   try { j = await r.json(); } catch { throw new ApiError('La URL no responde como se esperaba. Revisa la URL de la implementación.', false); }
-  if (!j.ok) throw new ApiError(j.error === 'unauthorized' ? 'La clave no coincide con la del script' : (j.error || 'Error desconocido'), false);
+  if (!j.ok) throw new ApiError(errorTexto(j.error), false);
   return j;
 }
 
@@ -411,9 +419,10 @@ function sheetSettings() {
     <label>URL de la implementación (termina en /exec)</label><input class="field" id="s-url" inputmode="url" autocapitalize="off" autocorrect="off" value="${esc(c.demo ? '' : c.url || '')}" placeholder="https://script.google.com/macros/s/…/exec">
     <label>Clave</label><input class="field" id="s-key" type="password" autocapitalize="off" autocomplete="off" value="${esc(c.demo ? '' : c.key || '')}" placeholder="La clave que pusiste en el script">
     <div style="height:16px"></div><button class="btn" data-a="saveCfg">Probar y guardar</button>
+    <div style="height:10px"></div><button class="btn sec" data-a="diag">Diagnosticar la conexión</button>
     <div style="height:10px"></div><button class="btn sec" data-a="demo">Ver con datos de ejemplo</button>
     ${S.cfg ? `<div style="height:10px"></div><button class="btn danger" data-a="logout">Desconectar este dispositivo</button>` : ''}
-    <p class="small dim" style="margin:14px 0 0">Los datos viven solo en tu Google Sheets. En este dispositivo se guarda la URL, la clave y una copia para ver sin conexión.</p>`);
+    <p class="small dim" style="margin:14px 0 0">Versión de la app: ${APP_VERSION}. Los datos viven solo en tu Google Sheets. En este dispositivo se guarda la URL, la clave y una copia para ver sin conexión.</p>`);
 }
 
 function sheetFijo(row) {
@@ -454,7 +463,9 @@ function renderSetup() {
     <label class="small muted" style="display:block;margin:14px 0 6px">Clave</label>
     <input class="field" id="s-key" type="password" autocapitalize="off" autocomplete="off" placeholder="La clave que pusiste en el script">
     <div style="height:18px"></div><button class="btn" data-a="saveCfg">Conectar</button>
-    <div style="height:10px"></div><button class="btn sec" data-a="demo">Probar con datos de ejemplo</button></div>`;
+    <div style="height:10px"></div><button class="btn sec" data-a="diag">Diagnosticar la conexión</button>
+    <div style="height:10px"></div><button class="btn sec" data-a="demo">Probar con datos de ejemplo</button>
+    <p class="small dim" style="margin-top:14px">Versión de la app: ${APP_VERSION}</p></div>`;
 }
 
 async function saveCfg() {
@@ -470,6 +481,54 @@ async function saveCfg() {
   } catch (e) {
     S.cfg = prev; toast(e.message, true); if (btn) { btn.disabled = false; btn.textContent = 'Probar y guardar'; }
   }
+}
+
+
+// ------------------------------------------------------------------ diagnóstico de conexión
+async function diagnostico() {
+  const url = ($('#s-url')?.value || S.cfg?.url || '').trim(), key = ($('#s-key')?.value || S.cfg?.key || '').trim();
+  const lines = [];
+  const show = fin => openSheet(`<h2>Diagnóstico</h2>${lines.map(l => `<div class="item"><b class="${l[0] === 'ok' ? 'pos' : l[0] === 'bad' ? 'neg' : ''}">${l[0] === 'ok' ? '✓' : l[0] === 'bad' ? '✗' : '•'}</b> ${l[1]}</div>`).join('')}
+    ${fin ? '' : '<div class="small muted" style="margin-top:12px">Probando…</div>'}<div style="height:14px"></div><button class="btn sec" data-a="closeSheet">Cerrar</button>`);
+  const add = (t, m) => { lines.push([t, m]); show(false); };
+  show(false);
+  add('info', `Versión de la app: <b>${APP_VERSION}</b>`);
+  if (!url) { add('bad', 'No hay URL escrita.'); return show(true); }
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(url)) {
+    add('bad', `La URL no tiene el formato correcto. Debe ser <b>https://script.google.com/macros/s/…/exec</b> (termina en <b>/exec</b>, no en /dev). La tuya termina en: <b>${esc(url.slice(-12))}</b>`);
+  } else add('ok', 'La URL tiene el formato correcto.');
+  add(navigator.onLine === false ? 'bad' : 'ok', navigator.onLine === false ? 'El celular no tiene internet.' : 'El celular tiene internet.');
+  // GET con lectura (CORS)
+  let leido = false;
+  try {
+    const r = await fetch(url, { method: 'GET', redirect: 'follow' });
+    const j = await r.json(); leido = true;
+    add('ok', 'El script responde y la app puede leerlo.');
+    if (j.claveEstado === 'no_configurada') add('bad', 'En el script la CLAVE sigue siendo la de ejemplo. Cámbiala, guarda y publica una <b>Nueva versión</b> (Implementar → Administrar implementaciones → ✏ → Nueva versión).');
+    else if (j.claveEstado === 'corta') add('bad', `La CLAVE del script tiene solo ${j.claveLongitud} caracteres; debe tener al menos 10. Cámbiala y publica una <b>Nueva versión</b>.`);
+    else if (j.claveEstado === 'ok') add('ok', `El script tiene una clave de ${j.claveLongitud} caracteres.` + (key && limpiarClave(key).length !== j.claveLongitud ? ` <b>La de la app tiene ${limpiarClave(key).length}</b>: no son iguales, revisa que no falte o sobre algún carácter.` : ''));
+    else add('bad', 'El script desplegado es una versión anterior (no informa el estado de la clave). Publica una <b>Nueva versión</b> con el Code.gs más reciente.');
+  } catch (e) {
+    add('bad', `No se pudo leer la respuesta (${esc(e.message || e.name)}).`);
+    try {
+      await fetch(url, { mode: 'no-cors', redirect: 'follow' });
+      add('bad', 'Google sí responde, pero bloquea a la app: casi seguro la implementación <b>no está como «Cualquier persona»</b> (puede estar como «Cualquier persona con cuenta de Google» o «Solo yo»). En Apps Script: Implementar → Administrar implementaciones → ✏ → Quién tiene acceso: Cualquier persona → Versión: Nueva versión → Implementar.');
+    } catch (e2) {
+      add('bad', 'No se llega a script.google.com con esa URL. Revisa que esté completa y bien copiada (sin espacios), y que no haya un bloqueador de anuncios o VPN activo.');
+    }
+  }
+  // POST con clave
+  if (leido && key) {
+    try {
+      const r = await fetch(url, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ token: limpiarClave(key), action: 'bootstrap' }) });
+      const j = await r.json();
+      if (j.ok) add('ok', `Clave correcta. Hoja leída: año ${j.config.year}, ${j.config.categorias.length} categorías, mes ${esc(j.month.mes)}.`);
+      else if (j.error === 'unauthorized') add('bad', 'La clave NO coincide con la del script. Si las longitudes de arriba son iguales, hay algún carácter distinto (por ejemplo O y 0, l e I, o una mayúscula). Lo más seguro: escribe una clave nueva solo con letras minúsculas y números, en el script y en la app.');
+      else if (/^clave_/.test(j.error || '')) add('bad', errorTexto(j.error));
+      else add('bad', 'El script respondió con un error: <b>' + esc(j.error) + '</b>');
+    } catch (e) { add('bad', `El envío con clave falló (${esc(e.message || e.name)}).`); }
+  } else if (leido && !key) add('bad', 'Falta escribir la clave.');
+  show(true);
 }
 
 // ------------------------------------------------------------------ eventos
@@ -493,6 +552,7 @@ document.addEventListener('click', async ev => {
     case 'guardar': guardarMovimiento(); break;
     case 'sync': await refresh(); await flushQueue(); toast('Actualizado'); break;
     case 'saveCfg': saveCfg(); break;
+    case 'diag': diagnostico(); break;
     case 'demo': S.entry.fecha = DEMO.config.year + '-09-28'; S.cfg = { demo: true }; store.set('cfg', S.cfg); S.config = DEMO.config; S.mes = DEMO.config.mesActual; S.months = JSON.parse(JSON.stringify(DEMO.months)); S.year = DEMO.year; S.queue = []; closeSheet(); render(); break;
     case 'logout': if (confirm('¿Desconectar este dispositivo? Los datos siguen en tu hoja.')) { ['cfg', 'cache', 'queue'].forEach(x => store.del(x)); S.cfg = null; S.queue = []; S.months = {}; S.year = null; S.config = null; closeSheet(); render(); } break;
     case 'fijo': sheetFijo(row); break;

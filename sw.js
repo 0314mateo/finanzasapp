@@ -1,5 +1,5 @@
 // Service worker: deja la app disponible sin conexión. Nunca guarda en caché las llamadas a Google.
-const VERSION = 'finanzas-v2';
+const VERSION = 'finanzas-v4';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'demo-data.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
@@ -13,13 +13,11 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const u = new URL(e.request.url);
   if (e.request.method !== 'GET' || u.origin !== location.origin) return;   // API de Google: siempre a la red
+  // red primero: siempre la versión más nueva; sin conexión, la copia guardada
   e.respondWith(
-    caches.match(e.request).then(hit => {
-      const red = fetch(e.request).then(r => {
-        if (r.ok) caches.open(VERSION).then(c => c.put(e.request, r.clone()));
-        return r;
-      }).catch(() => hit);
-      return hit || red;      // rápido desde caché y se actualiza en segundo plano
-    })
+    fetch(e.request, { cache: 'no-cache' }).then(r => {
+      if (r.ok) { const c = r.clone(); caches.open(VERSION).then(ch => ch.put(e.request, c)); }
+      return r;
+    }).catch(() => caches.match(e.request).then(hit => hit || caches.match('index.html')))
   );
 });
