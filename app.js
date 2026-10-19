@@ -1,6 +1,6 @@
 /* Finanzas · app web instalable (PWA). Sin dependencias: HTML + JS puro. */
 'use strict';
-const APP_VERSION = '5';
+const APP_VERSION = '6';
 
 // ------------------------------------------------------------------ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -202,6 +202,7 @@ function render() {
   if (!m || !S.config) { v.innerHTML = '<div class="sk"></div><div class="sk"></div><div class="sk"></div>'; return; }
   const fn = { registrar: vRegistrar, resumen: vResumen, fijos: vFijos, cuentas: vCuentas, anio: vAnio, historial: vHistorial }[S.view];
   v.innerHTML = fn(m);
+  if (S.view === 'registrar') fitAmt($('#amt'));
   if (S.view !== 'registrar') v.scrollTop = scroll;
 }
 
@@ -258,7 +259,7 @@ function vRegistrar() {
   const transf = e.tipo === 'Transferencia', cu = hayCuentas();
   const opcionesCuenta = (sel, vacio) => `<option value="">${vacio}</option>${S.config.cuentas.map(c => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('')}`;
   return `
-  <div class="amount"><div class="cur num ${v ? '' : 'empty'}"><small>$</small>${v ? v.toLocaleString('es-CO') : '0'}</div></div>
+  <label class="amount"><span class="cur num ${v ? '' : 'empty'}"><small>$</small><input id="amt" class="amt num" type="text" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" autocomplete="off" placeholder="0" aria-label="Monto" value="${v ? v.toLocaleString('es-CO') : ''}"></span><small class="hint">Toca el monto para escribirlo</small></label>
   <div class="seg"><button data-a="tipo" data-k="Gasto" class="${!transf ? 'on' : ''}">Gasto</button>
     <button data-a="tipo" data-k="Transferencia" class="${transf ? 'on' : ''}">Transferencia</button></div>
   ${transf ? `<div class="card small muted" style="padding:12px 14px">Mover dinero entre tus cuentas <b style="color:var(--tx)">no cuenta como gasto</b>.${cu ? ' Se resta de «De» y se suma a «A».' : ' Queda registrado, pero no afecta tus indicadores.'}</div>` :
@@ -271,11 +272,14 @@ function vRegistrar() {
     <label class="sel"><small>Mes en hoja</small><b>${MESES[Number(e.fecha.slice(5, 7)) - 1]}</b></label>`}
   </div>
   <input class="field" data-a="concepto" placeholder="${transf ? 'Concepto (opcional)' : 'Concepto (opcional)'}" maxlength="80" value="${esc(e.concepto)}" autocomplete="off">
-  <div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button data-a="key" data-k="${n}">${n}</button>`).join('')}
-    <button data-a="key" data-k="000" class="fn">000</button><button data-a="key" data-k="0">0</button><button data-a="key" data-k="del" class="fn" aria-label="Borrar">⌫</button></div>
-  <button class="btn" data-a="guardar" ${v > 0 && (transf ? (!cu || (e.cuenta && e.destino && e.cuenta !== e.destino)) : e.cat) ? '' : 'disabled'}>${transf ? 'Registrar transferencia' : 'Guardar gasto'}</button>`;
+  <button class="btn" style="margin-top:14px" data-a="guardar" ${puedeGuardar() ? '' : 'disabled'}>${transf ? 'Registrar transferencia' : 'Guardar gasto'}</button>`;
 }
 
+const fitAmt = el => { if (el) el.style.width = Math.max(1, el.value.length) + 'ch'; };
+function puedeGuardar() {
+  const e = S.entry, v = Number(e.digits || 0), transf = e.tipo === 'Transferencia';
+  return v > 0 && (transf ? (!hayCuentas() || (e.cuenta && e.destino && e.cuenta !== e.destino)) : !!e.cat);
+}
 const hayCuentas = () => !!S.config?.cuentasListas && S.config.cuentas.length >= 2;
 const cuentaField = (id, val, label) => S.config?.cuentasListas && S.config.cuentas.length
   ? `<label>${label}</label><select class="field" id="${id}"><option value="">Sin cuenta</option>${S.config.cuentas.map(c => `<option ${c === val ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : '';
@@ -693,7 +697,21 @@ document.addEventListener('click', async ev => {
 });
 document.addEventListener('input', ev => {
   const el = ev.target; if (el.dataset?.a === 'concepto') S.entry.concepto = el.value;
+  if (el.id === 'amt') {                                   // monto: teclado numérico del celular, con puntos de miles
+    const pos = el.selectionStart ?? el.value.length;
+    let antes = el.value.slice(0, pos).replace(/\D/g, '').length;      // dígitos a la izquierda del cursor
+    let d = el.value.replace(/\D/g, '');
+    if (d === S.entry.digits && ev.inputType === 'deleteContentBackward' && antes > 0) { d = d.slice(0, antes - 1) + d.slice(antes); antes--; }   // borró un punto: quita el dígito
+    d = d.replace(/^0+/, '').slice(0, 10); antes = Math.min(antes, d.length);
+    S.entry.digits = d;
+    el.value = d ? Number(d).toLocaleString('es-CO') : '';
+    let c = 0, seen = 0; while (c < el.value.length && seen < antes) { if (/\d/.test(el.value[c])) seen++; c++; }
+    try { el.setSelectionRange(c, c); } catch { /* sin cursor */ }
+    el.closest('.cur')?.classList.toggle('empty', !d); fitAmt(el);
+    const btn = $('[data-a=guardar]'); if (btn) btn.disabled = !puedeGuardar();
+  }
 });
+document.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.id === 'amt') ev.target.blur(); });
 document.addEventListener('change', ev => {
   const el = ev.target;
   if (el.dataset?.a === 'fecha' && el.value) { S.entry.fecha = el.value; const i = Number(el.value.slice(5, 7)) - 1; if (MESES[i] !== S.mes) loadMonth(MESES[i]); else render(); }
