@@ -1,6 +1,6 @@
 /* Finanzas · app web instalable (PWA). Sin dependencias: HTML + JS puro. */
 'use strict';
-const APP_VERSION = '4';
+const APP_VERSION = '5';
 
 // ------------------------------------------------------------------ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -32,6 +32,7 @@ const ICONS = {
   right: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   tick: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+  wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H5a2 2 0 0 1-2-2z"/><circle cx="16.5" cy="14.5" r="1.2"/></svg>',
   swap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></svg>',
   warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20zM12 10v4M12 17h.01"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15.5 6.2M3 12A9 9 0 0 1 18.5 5.8M18.5 2v4h-4M5.5 22v-4h4"/></svg>',
@@ -49,11 +50,12 @@ const S = {
   config: null,                           // listas y año
   months: {},                             // cache por mes
   year: null,
+  cuentas: null,                          // saldos por cuenta (hoja «Cuentas»)
   view: 'registrar',
   mes: null,                              // mes que se está viendo
   queue: store.get('queue', []),
   loading: false, offline: false, stamp: null, flushing: false,
-  entry: { digits: '', cat: null, tipo: 'Gasto', cuenta: store.get('cuenta', ''), fecha: todayIso(), concepto: '' },
+  entry: { digits: '', cat: null, tipo: 'Gasto', cuenta: store.get('cuenta', ''), destino: '', fecha: todayIso(), concepto: '' },
 };
 const cache = store.get('cache', null);
 if (cache) { S.config = cache.config; S.months = cache.months || {}; S.year = cache.year; S.stamp = cache.stamp; }
@@ -118,15 +120,23 @@ async function loadAll(force = false) {
 
 async function loadMonth(mes) {
   S.mes = mes; render();
-  try { const r = await api('month', { mes }); S.months[mes] = r.month; S.offline = false; persist(); }
+  try { const r = await api('month', { mes }); S.months[mes] = r.month; S.offline = false; persist(); S.cuentas = null; }
   catch (e) { S.offline = !!e.network; if (!S.months[mes]) toast(e.message, true); }
   render();
+  if (S.view === 'cuentas') loadCuentas();
 }
 
 async function loadYear() {
   try { const r = await api('year'); S.year = r.year; S.offline = false; persist(); }
   catch (e) { S.offline = !!e.network; if (!S.year) toast(e.message, true); }
   if (S.view === 'anio') render();
+}
+
+async function loadCuentas() {
+  if (!S.config?.cuentasListas) return;
+  try { const r = await api('accounts'); S.cuentas = r.cuentas; S.offline = false; }
+  catch (e) { S.offline = !!e.network; toast(e.message, true); S.cuentas = S.cuentas || { error: true }; }
+  if (S.view === 'cuentas') render();
 }
 
 async function refresh() {
@@ -165,7 +175,7 @@ function toast(msg, bad) {
 const buzz = () => { try { navigator.vibrate?.(12); } catch { /* sin vibración */ } };
 
 const TABS = [['registrar', 'Registrar', ICONS.plus], ['resumen', 'Resumen', ICONS.pie], ['fijos', 'Fijos', ICONS.check],
-  ['anio', 'Año', ICONS.chart], ['historial', 'Historial', ICONS.list]];
+  ['cuentas', 'Cuentas', ICONS.wallet], ['anio', 'Año', ICONS.chart], ['historial', 'Historial', ICONS.list]];
 
 function renderTop() {
   const m = S.mes || nowMes(), yr = S.config?.year || new Date().getFullYear();
@@ -190,7 +200,7 @@ function render() {
   const m = S.months[S.mes || nowMes()];
   const scroll = v.scrollTop;
   if (!m || !S.config) { v.innerHTML = '<div class="sk"></div><div class="sk"></div><div class="sk"></div>'; return; }
-  const fn = { registrar: vRegistrar, resumen: vResumen, fijos: vFijos, anio: vAnio, historial: vHistorial }[S.view];
+  const fn = { registrar: vRegistrar, resumen: vResumen, fijos: vFijos, cuentas: vCuentas, anio: vAnio, historial: vHistorial }[S.view];
   v.innerHTML = fn(m);
   if (S.view !== 'registrar') v.scrollTop = scroll;
 }
@@ -245,23 +255,31 @@ function fechaLabel(iso) {
 }
 function vRegistrar() {
   const e = S.entry, cats = S.config.categorias, v = Number(e.digits || 0);
-  const transf = e.tipo === 'Transferencia';
+  const transf = e.tipo === 'Transferencia', cu = hayCuentas();
+  const opcionesCuenta = (sel, vacio) => `<option value="">${vacio}</option>${S.config.cuentas.map(c => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('')}`;
   return `
   <div class="amount"><div class="cur num ${v ? '' : 'empty'}"><small>$</small>${v ? v.toLocaleString('es-CO') : '0'}</div></div>
   <div class="seg"><button data-a="tipo" data-k="Gasto" class="${!transf ? 'on' : ''}">Gasto</button>
     <button data-a="tipo" data-k="Transferencia" class="${transf ? 'on' : ''}">Transferencia</button></div>
-  ${transf ? `<div class="card small muted" style="padding:12px 14px">Mover dinero entre tus cuentas <b style="color:var(--tx)">no cuenta como gasto</b>. Queda registrado, pero no afecta tus indicadores.</div>` :
+  ${transf ? `<div class="card small muted" style="padding:12px 14px">Mover dinero entre tus cuentas <b style="color:var(--tx)">no cuenta como gasto</b>.${cu ? ' Se resta de «De» y se suma a «A».' : ' Queda registrado, pero no afecta tus indicadores.'}</div>` :
     `<div class="chips">${cats.map(c => `<button class="chip ${e.cat === c.n ? 'on' : ''}" style="--c:${catColor(c.n)}" data-a="cat" data-k="${esc(c.n)}"><i class="dot" style="background:${catColor(c.n)}"></i><span>${esc(c.n)}</span></button>`).join('')}</div>`}
   <div class="opts">
     <label class="sel"><small>Fecha</small><b>${fechaLabel(e.fecha)}</b><input type="date" data-a="fecha" value="${e.fecha}" max="${S.config.year}-12-31" min="${S.config.year}-01-01"></label>
-    <label class="sel"><small>Cuenta</small><b>${esc(e.cuenta || 'Sin cuenta')}</b><select data-a="cuenta"><option value="">Sin cuenta</option>${S.config.cuentas.map(c => `<option ${c === e.cuenta ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
-    <label class="sel"><small>Mes en hoja</small><b>${MESES[Number(e.fecha.slice(5, 7)) - 1]}</b></label>
+    ${transf && cu ? `<label class="sel"><small>De</small><b>${esc(e.cuenta || 'Elegir')}</b><select data-a="cuenta">${opcionesCuenta(e.cuenta, 'Elegir…')}</select></label>
+    <label class="sel"><small>A</small><b>${esc(e.destino || 'Elegir')}</b><select data-a="destino">${opcionesCuenta(e.destino, 'Elegir…')}</select></label>` :
+    `<label class="sel"><small>Cuenta</small><b>${esc(e.cuenta || 'Sin cuenta')}</b><select data-a="cuenta">${opcionesCuenta(e.cuenta, 'Sin cuenta')}</select></label>
+    <label class="sel"><small>Mes en hoja</small><b>${MESES[Number(e.fecha.slice(5, 7)) - 1]}</b></label>`}
   </div>
-  <input class="field" data-a="concepto" placeholder="${transf ? 'Concepto (ej. a Nu)' : 'Concepto (opcional)'}" maxlength="80" value="${esc(e.concepto)}" autocomplete="off">
+  <input class="field" data-a="concepto" placeholder="${transf ? 'Concepto (opcional)' : 'Concepto (opcional)'}" maxlength="80" value="${esc(e.concepto)}" autocomplete="off">
   <div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button data-a="key" data-k="${n}">${n}</button>`).join('')}
     <button data-a="key" data-k="000" class="fn">000</button><button data-a="key" data-k="0">0</button><button data-a="key" data-k="del" class="fn" aria-label="Borrar">⌫</button></div>
-  <button class="btn" data-a="guardar" ${v > 0 && (transf || e.cat) ? '' : 'disabled'}>${transf ? 'Registrar transferencia' : 'Guardar gasto'}</button>`;
+  <button class="btn" data-a="guardar" ${v > 0 && (transf ? (!cu || (e.cuenta && e.destino && e.cuenta !== e.destino)) : e.cat) ? '' : 'disabled'}>${transf ? 'Registrar transferencia' : 'Guardar gasto'}</button>`;
 }
+
+const hayCuentas = () => !!S.config?.cuentasListas && S.config.cuentas.length >= 2;
+const cuentaField = (id, val, label) => S.config?.cuentasListas && S.config.cuentas.length
+  ? `<label>${label}</label><select class="field" id="${id}"><option value="">Sin cuenta</option>${S.config.cuentas.map(c => `<option ${c === val ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : '';
+const cuentaVal = id => (S.config?.cuentasListas && $('#' + id)) ? $('#' + id).value : undefined;
 
 function guardarMovimiento() {
   const e = S.entry, v = Number(e.digits || 0), transf = e.tipo === 'Transferencia';
@@ -269,11 +287,12 @@ function guardarMovimiento() {
   let cat = e.cat;
   if (transf) cat = (S.config.categorias.find(c => c.n === 'Otros') || S.config.categorias[S.config.categorias.length - 1]).n;
   if (!cat) return;
-  const op = { id: uid(), t: Date.now(), data: { id: null, concepto: (e.concepto || '').trim() || (transf ? 'Transferencia' : cat), valor: v, categoria: cat, fecha: e.fecha, cuenta: e.cuenta || '', tipo: e.tipo } };
+  if (transf && hayCuentas() && (!e.cuenta || !e.destino || e.cuenta === e.destino)) return toast('Elige la cuenta de origen y la de destino (distintas)', true);
+  const op = { id: uid(), t: Date.now(), data: { id: null, concepto: (e.concepto || '').trim() || (transf ? (e.cuenta && e.destino ? `${e.cuenta} → ${e.destino}` : 'Transferencia') : cat), valor: v, categoria: cat, fecha: e.fecha, cuenta: e.cuenta || '', destino: transf ? (e.destino || '') : '', tipo: e.tipo } };
   op.data.id = op.id;
   S.queue.push(op); persist(); buzz();
   const mesIdx = Number(e.fecha.slice(5, 7)) - 1;
-  S.entry = { ...S.entry, digits: '', cat: null, concepto: '', tipo: 'Gasto' };
+  S.entry = { ...S.entry, digits: '', cat: null, concepto: '', tipo: 'Gasto', destino: '' };
   store.set('cuenta', S.entry.cuenta);
   toast(`Guardado · ${money(v)} · ${MESES[mesIdx]}`);
   render(); flushQueue();
@@ -325,7 +344,7 @@ function vResumen(m) {
       <div class="row between"><span class="small muted">${pct(a.pc)} de la meta</span><button class="pill" data-a="aporte" data-row="${a.row}">+ Aporte</button></div></div>`).join('') || '<div class="empty">Sin metas</div>'}
   </div>
   <div class="card"><h3>Ingresos <span>${money(k.ingReal)} / ${money(k.ingPres)}</span></h3>
-    ${m.ingresos.map(i => `<div class="item row between"><div class="grow"><div class="ell" style="font-weight:600">${esc(i.c)}</div><div class="small muted num">Esperado ${money(i.p)}</div></div>
+    ${m.ingresos.map(i => `<div class="item row between"><div class="grow"><div class="ell" style="font-weight:600">${esc(i.c)}</div><div class="small muted num">Esperado ${money(i.p)}${i.cuenta ? ' · ' + esc(i.cuenta) : ''}</div></div>
       ${i.r ? `<button class="pill ok" data-a="ingreso" data-row="${i.row}">${tickSm()} ${short(i.r)}</button>` : `<button class="pill warn" data-a="ingreso" data-row="${i.row}">Registrar recibido</button>`}</div>`).join('')}
     <button class="btn sec" style="height:42px;margin-top:12px;font-size:14px" data-a="nuevoIngreso">+ Agregar ingreso</button></div>`;
 }
@@ -350,7 +369,50 @@ function vFijos(m) {
     <button class="mv" data-a="fijo" data-row="${f.row}"><span class="check ${f.estado === 'Pagado' ? 'on' : ''}">${ICONS.tick}</span>
       <div class="grow"><div class="t ell ${f.estado === 'Pagado' ? 'muted' : ''}" style="${f.estado === 'Pagado' ? 'text-decoration:line-through;text-decoration-color:var(--dim)' : ''}">${esc(f.c)}</div>
       <div class="small muted ell"><i class="dot" style="background:${catColor(f.cat)};margin-right:5px"></i>${esc(f.cat)} · ${badge(f)}</div></div>
-      <div class="a num">${money(f.estado === 'Pagado' && f.real != null ? f.real : f.p)}</div></button>`).join('') : '<div class="empty">No hay gastos fijos en este mes</div>'}</div>`;
+      <div class="a num">${money(f.estado === 'Pagado' && f.real != null ? f.real : f.p)}</div></button>`).join('') : '<div class="empty">Este mes aún no tiene gastos fijos.<br>Agrégalos una sola vez y se copian a los demás meses.</div>'}</div>
+  <button class="btn sec" style="margin-top:12px" data-a="fijoNuevo">+ Agregar gasto fijo</button>
+  ${fijos.length ? `<button class="btn sec" style="margin-top:8px" data-a="fijoCopiar">Copiar estos fijos a los meses vacíos</button>`
+    : MESES.indexOf(m.mes) > 0 ? `<button class="btn" style="margin-top:8px" data-a="fijoDelAnterior">Copiar los de ${MESES[MESES.indexOf(m.mes) - 1]}</button>` : ''}`;
+}
+
+// ------------------------------------------------------------------ vista: cuentas
+function vCuentas() {
+  const cfg = S.config;
+  if (!cfg.cuentasListas) {
+    const viejo = cfg.cuentasListas === undefined;
+    return `<div class="card"><h3>Cuentas y saldos</h3>
+      <p class="muted small" style="margin:0 0 12px">Aquí verás cuánto hay en cada cuenta: lo que entra, lo que sale y lo que mueves entre cuentas.</p>
+      ${viejo ? `<div class="item"><b>1.</b> Tu script de Google es de una versión anterior. En Apps Script pega el <b>Code.gs</b> nuevo, guarda y publica una <b>Nueva versión</b> (Implementar → Administrar implementaciones → ✏ → Nueva versión).</div>` : ''}
+      <div class="item"><b>${viejo ? '2' : '1'}.</b> En Apps Script (Extensiones → Apps Script) elige la función <b>instalarCuentas</b> y pulsa <b>Ejecutar</b>. Si dice «Falta un poco», ejecútala otra vez hasta que diga «Listo».</div>
+      <div class="item"><b>${viejo ? '3' : '2'}.</b> Vuelve aquí y toca el botón.</div>
+      <button class="btn" style="margin-top:12px" data-a="recargar">Ya la activé · actualizar</button></div>`;
+  }
+  const c = S.cuentas;
+  if (!c) { loadCuentas(); return '<div class="sk"></div><div class="sk"></div><div class="sk"></div>'; }
+  if (c.error) return `<div class="empty">No se pudieron leer los saldos.<br><button class="pill" data-a="recargarCuentas" style="margin-top:10px">Reintentar</button></div>`;
+  if (!c.lista.length) return '<div class="empty">Aún no hay cuentas.<br>Agrégalas en la hoja <b>Listas</b>, columna «Cuenta u origen».</div>';
+  const entro = a => a.ing + a.rec, salio = a => a.gas + a.fij + a.aho + a.env;
+  const enCuentas = c.lista.reduce((t, a) => t + a.saldo, 0);
+  return `
+  <div class="card hero"><div class="lbl">Saldo total</div><div class="big num ${c.total.saldo < 0 ? 'neg' : ''}">${money(c.total.saldo)}</div>
+    <div class="sub"><span>En tus cuentas <b class="num">${money(enCuentas)}</b></span>${Math.abs(c.sin.saldo) > 0.5 ? `<span>Sin cuenta <b class="num">${money(c.sin.saldo)}</b></span>` : ''}</div></div>
+  ${c.lista.map(a => `<button class="card" style="width:100%;text-align:left;display:block" data-a="cuentaDet" data-n="${esc(a.n)}">
+      <div class="row between"><b style="font-size:16px">${esc(a.n)}</b><span class="num ${a.saldo < 0 ? 'neg' : ''}" style="font-size:20px;font-weight:700">${money(a.saldo)}</span></div>
+      <div class="row between small muted" style="margin-top:8px"><span>Inicial <b class="num" style="color:var(--tx)">${short(a.ini)}</b></span><span>Entró <b class="num pos">+${short(entro(a))}</b></span><span>Salió <b class="num neg">−${short(salio(a))}</b></span></div></button>`).join('')}
+  ${Math.abs(c.sin.ing) + Math.abs(c.sin.gas) + Math.abs(c.sin.fij) + Math.abs(c.sin.aho) > 0.5 ? `<div class="card small muted">Hay movimientos sin cuenta asignada: entró ${money(c.sin.ing)} · salió ${money(c.sin.gas + c.sin.fij + c.sin.aho)}. Asígnales cuenta desde el Historial para que los saldos sean exactos.</div>` : ''}
+  <p class="small dim" style="margin:6px 4px">Toca una cuenta para ver el detalle o cambiar su saldo inicial. Los saldos se calculan con todo el año.</p>`;
+}
+
+function sheetCuenta(n) {
+  const a = S.cuentas?.lista.find(x => x.n === n); if (!a) return;
+  const fila = (t, v, sg) => `<div class="row between item"><span class="muted">${t}</span><b class="num ${sg < 0 ? 'neg' : sg > 0 ? 'pos' : ''}">${sg < 0 ? '−' : sg > 0 ? '+' : ''}${money(v)}</b></div>`;
+  openSheet(`<h2>${esc(a.n)}</h2>
+    ${fila('Saldo inicial', a.ini, 0)}${fila('Ingresos', a.ing, 1)}${fila('Transferencias recibidas', a.rec, 1)}
+    ${fila('Gastos', a.gas, -1)}${fila('Fijos pagados', a.fij, -1)}${fila('Aportes a metas', a.aho, -1)}${fila('Transferencias enviadas', a.env, -1)}
+    <div class="row between item"><b>Saldo actual</b><b class="num ${a.saldo < 0 ? 'neg' : ''}" style="font-size:18px">${money(a.saldo)}</b></div>
+    <label>Saldo inicial de la cuenta (lo que tenías al empezar el año)</label>
+    <input class="field num" id="m-v" type="number" inputmode="numeric" value="${a.ini}">
+    <div style="height:16px"></div><button class="btn" data-a="saldoSave" data-n="${esc(a.n)}">Guardar saldo inicial</button>`);
 }
 
 // ------------------------------------------------------------------ vista: año
@@ -391,7 +453,7 @@ function vHistorial(m) {
   const fila = x => {
     const tr = x.tipo === 'Transferencia';
     return `<button class="mv" data-a="editar" data-row="${x.row}"><span class="ic" style="${tr ? 'color:var(--aho)' : ''}">${tr ? ICONS.swap.replace('<svg', '<svg width="18" height="18"') : `<i class="dot" style="background:${catColor(x.cat)};width:11px;height:11px"></i>`}</span>
-      <div class="grow"><div class="t ell">${esc(x.c)}</div><div class="small muted ell">${esc(x.cat)}${x.cuenta ? ' · ' + esc(x.cuenta) : ''}${x.control && x.control !== 'OK' ? ` · <span class="neg">${esc(x.control)}</span>` : ''}</div></div>
+      <div class="grow"><div class="t ell">${esc(x.c)}</div><div class="small muted ell">${tr && S.config.cuentasListas ? `${esc(x.cuenta || '¿?')} → ${esc(x.destino || '¿?')}` : esc(x.cat) + (x.cuenta ? ' · ' + esc(x.cuenta) : '')}${x.control && x.control !== 'OK' ? ` · <span class="neg">${esc(x.control)}</span>` : ''}</div></div>
       <div class="a num" style="${tr ? 'color:var(--aho)' : ''}">${money(x.v)}</div></button>`;
   };
   return `
@@ -429,10 +491,29 @@ function sheetFijo(row) {
   const f = S.months[S.mes].fijos.find(x => x.row === Number(row)); if (!f) return;
   const pagado = f.estado === 'Pagado';
   openSheet(`<h2>${esc(f.c)}</h2><div class="muted small" style="margin-top:-8px">${esc(f.cat)} · presupuesto ${money(f.p)}${f.dia ? ' · día ' + f.dia : ''}</div>
-    ${pagado ? `<div style="height:18px"></div><button class="btn sec" data-a="fijoSet" data-row="${f.row}" data-e="Pendiente">Marcar como pendiente</button>` :
+    ${pagado ? `${f.cuenta ? `<div class="small muted" style="margin-top:10px">Pagado desde <b style="color:var(--tx)">${esc(f.cuenta)}</b></div>` : ''}<div style="height:18px"></div><button class="btn sec" data-a="fijoSet" data-row="${f.row}" data-e="Pendiente">Marcar como pendiente</button>` :
       `<label>Valor pagado</label><input class="field num" id="f-real" type="number" inputmode="numeric" value="${f.p}">
       <div class="small dim" style="margin-top:6px">Si pagaste otro valor, cámbialo. Se cuenta como gasto del mes.</div>
-      <div style="height:16px"></div><button class="btn" data-a="fijoSet" data-row="${f.row}" data-e="Pagado">Marcar como pagado</button>`}`);
+      ${cuentaField('f-cu', f.cuenta || S.entry.cuenta, 'Pagado desde la cuenta')}
+      <div style="height:16px"></div><button class="btn" data-a="fijoSet" data-row="${f.row}" data-e="Pagado">Marcar como pagado</button>`}
+    <div style="height:10px"></div><button class="btn sec" data-a="fijoEditar" data-row="${f.row}">Editar este gasto fijo</button>`);
+}
+
+function sheetFijoForm(f) {
+  const cfg = S.config, nuevo = !f;
+  const x = f || { c: '', p: '', cat: cfg.categorias[0]?.n, dia: '', cuenta: '' };
+  S._fijoRow = f ? f.row : null;
+  openSheet(`<h2>${nuevo ? 'Nuevo gasto fijo' : 'Editar gasto fijo'}</h2>
+    <label>Nombre</label><input class="field" id="x-c" value="${esc(x.c)}" maxlength="60" placeholder="Ej. Arriendo, Internet, Netflix">
+    <div class="grid2"><div><label>Valor mensual</label><input class="field num" id="x-p" type="number" inputmode="numeric" value="${x.p}" placeholder="0"></div>
+    <div><label>Día de pago</label><input class="field num" id="x-d" type="number" inputmode="numeric" min="1" max="31" value="${x.dia || ''}" placeholder="1–31"></div></div>
+    <label>Categoría</label><select class="field" id="x-cat">${cfg.categorias.map(c => `<option ${c.n === x.cat ? 'selected' : ''}>${esc(c.n)}</option>`).join('')}</select>
+    ${cuentaField('x-cu', x.cuenta || S.entry.cuenta, 'Se paga desde la cuenta')}
+    <label>${nuevo ? 'Aplicar a' : 'Aplicar el cambio a'}</label>
+    <select class="field" id="x-al"><option value="siguientes">Este mes y los siguientes</option><option value="todos">Todo el año</option><option value="este">Solo este mes</option></select>
+    <div class="small dim" style="margin-top:6px">${nuevo ? 'Se agrega como pendiente en cada mes elegido.' : 'En los otros meses se busca el gasto por su nombre. Los ya pagados conservan su pago.'}</div>
+    <div style="height:16px"></div><button class="btn" data-a="fijoGuardar">${nuevo ? 'Agregar' : 'Guardar cambios'}</button>
+    ${nuevo ? '' : '<div style="height:10px"></div><button class="btn danger" data-a="fijoBorrar">Quitar este gasto fijo</button>'}`);
 }
 
 function sheetEditar(row) {
@@ -443,8 +524,9 @@ function sheetEditar(row) {
     <label>Valor</label><input class="field num" id="e-v" type="number" inputmode="numeric" value="${x.v}">
     <div class="grid2"><div><label>Categoría</label><select class="field" id="e-cat">${cfg.categorias.map(c => `<option ${c.n === x.cat ? 'selected' : ''}>${esc(c.n)}</option>`).join('')}</select></div>
     <div><label>Fecha</label><input class="field" id="e-f" type="date" value="${x.f}"></div>
-    <div><label>Cuenta</label><select class="field" id="e-cu"><option value="">Sin cuenta</option>${cfg.cuentas.map(c => `<option ${c === x.cuenta ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+    <div><label>Cuenta${cfg.cuentasListas ? ' / origen' : ''}</label><select class="field" id="e-cu"><option value="">Sin cuenta</option>${cfg.cuentas.map(c => `<option ${c === x.cuenta ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
     <div><label>Tipo</label><select class="field" id="e-t">${cfg.tipos.map(c => `<option ${c === x.tipo ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div></div>
+    ${cfg.cuentasListas ? `<div id="e-dw" style="${x.tipo === 'Transferencia' ? '' : 'display:none'}"><label>Cuenta destino (la que recibe)</label><select class="field" id="e-d"><option value="">Elegir…</option>${cfg.cuentas.map(c => `<option ${c === x.destino ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>` : ''}
     <div style="height:18px"></div><button class="btn" data-a="editSave" data-row="${x.row}">Guardar cambios</button>
     <div style="height:10px"></div><button class="btn danger" data-a="editDel" data-row="${x.row}">Eliminar movimiento</button>`);
 }
@@ -537,7 +619,11 @@ document.addEventListener('click', async ev => {
   const a = el.dataset.a, k = el.dataset.k, row = el.dataset.row;
   const m = S.months[S.mes];
   switch (a) {
-    case 'tab': S.view = k; $('#view').scrollTop = 0; render(); if (k === 'anio') loadYear(); break;
+    case 'tab': S.view = k; $('#view').scrollTop = 0; if (k === 'cuentas') S.cuentas = null; render(); if (k === 'anio') loadYear(); break;
+    case 'recargar': await loadAll(true); break;
+    case 'recargarCuentas': S.cuentas = null; render(); break;
+    case 'cuentaDet': sheetCuenta(el.dataset.n); break;
+    case 'saldoSave': try { await api('setOpening', { cuenta: el.dataset.n, valor: Number($('#m-v').value) }); closeSheet(); toast('Saldo inicial guardado ✓'); S.cuentas = null; loadCuentas(); } catch (e) { toast(e.message, true); } break;
     case 'prev': case 'next': { const i = MESES.indexOf(S.mes || nowMes()) + (a === 'next' ? 1 : -1); if (i >= 0 && i < 12) { S.entry.fecha = fechaParaMes(i); loadMonth(MESES[i]); } break; }
     case 'settings': sheetSettings(); break;
     case 'closeSheet': closeSheet(); break;
@@ -558,25 +644,49 @@ document.addEventListener('click', async ev => {
     case 'fijo': sheetFijo(row); break;
     case 'fijoSet': {
       const real = $('#f-real') ? Number($('#f-real').value) : null; const f = m.fijos.find(x => x.row === Number(row));
-      try { await api('setFixed', { mes: S.mes, row: Number(row), estado: el.dataset.e, real: real != null && real !== f.p ? real : null }); closeSheet(); toast(el.dataset.e === 'Pagado' ? 'Marcado como pagado ✓' : 'Marcado como pendiente'); buzz(); await loadMonth(S.mes); }
+      const cuenta = el.dataset.e === 'Pagado' ? cuentaVal('f-cu') : undefined;
+      try { await api('setFixed', { mes: S.mes, row: Number(row), estado: el.dataset.e, real: real != null && real !== f.p ? real : null, cuenta }); closeSheet(); toast(el.dataset.e === 'Pagado' ? 'Marcado como pagado ✓' : 'Marcado como pendiente'); buzz(); await loadMonth(S.mes); }
       catch (e) { toast(e.message, true); } break;
+    }
+    case 'fijoNuevo': sheetFijoForm(null); break;
+    case 'fijoEditar': sheetFijoForm(m.fijos.find(x => x.row === Number(row))); break;
+    case 'fijoGuardar': {
+      const datos = { mes: S.mes, concepto: $('#x-c').value, presupuesto: Number($('#x-p').value), categoria: $('#x-cat').value, dia: $('#x-d').value === '' ? null : Number($('#x-d').value), cuenta: cuentaVal('x-cu'), alcance: $('#x-al').value };
+      if (!datos.concepto.trim()) { toast('Escribe el nombre del gasto', true); break; }
+      try {
+        const r = await api(S._fijoRow ? 'editFixed' : 'addFixed', S._fijoRow ? { ...datos, row: S._fijoRow } : datos);
+        closeSheet(); toast(S._fijoRow ? `Actualizado en ${r.meses} ${r.meses === 1 ? 'mes' : 'meses'} ✓` : `Agregado en ${r.meses} ${r.meses === 1 ? 'mes' : 'meses'} ✓`); await loadMonth(S.mes);
+      } catch (e) { toast(e.message, true); } break;
+    }
+    case 'fijoBorrar': {
+      const f = m.fijos.find(x => x.row === S._fijoRow); const al = $('#x-al').value;
+      if (!confirm(`¿Quitar «${f.c}» ${al === 'este' ? 'solo de ' + S.mes : al === 'todos' ? 'de todo el año' : 'de ' + S.mes + ' en adelante'}? Los meses donde ya está pagado se conservan.`)) break;
+      try { const r = await api('delFixed', { mes: S.mes, row: S._fijoRow, alcance: al }); closeSheet(); toast(`Quitado de ${r.meses} ${r.meses === 1 ? 'mes' : 'meses'}`); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
+    }
+    case 'fijoCopiar': {
+      if (!confirm(`¿Copiar los gastos fijos de ${S.mes} a todos los meses que todavía no tienen? Los meses con datos no se tocan.`)) break;
+      try { const r = await api('copyFixed', { desde: S.mes, alcance: 'todos' }); toast(r.meses ? `Copiados a ${r.meses} ${r.meses === 1 ? 'mes' : 'meses'} ✓` : 'Todos los meses ya tienen gastos fijos'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
+    }
+    case 'fijoDelAnterior': {
+      const prev = MESES[MESES.indexOf(S.mes) - 1];
+      try { await api('copyFixed', { desde: prev, alcance: 'siguiente' }); toast(`Copiados de ${prev} ✓`); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
     }
     case 'editar': sheetEditar(row); break;
     case 'editSave': {
       const x = m.movs.find(z => z.row === Number(row));
-      try { await api('update', { mes: S.mes, row: Number(row), esperado: { c: x.c, v: x.v }, concepto: $('#e-c').value, valor: Number($('#e-v').value), categoria: $('#e-cat').value, fecha: $('#e-f').value, cuenta: $('#e-cu').value, tipo: $('#e-t').value }); closeSheet(); toast('Cambios guardados ✓'); await loadMonth(S.mes); }
+      try { await api('update', { mes: S.mes, row: Number(row), esperado: { c: x.c, v: x.v }, concepto: $('#e-c').value, valor: Number($('#e-v').value), categoria: $('#e-cat').value, fecha: $('#e-f').value, cuenta: $('#e-cu').value, destino: $('#e-d') ? $('#e-d').value : '', tipo: $('#e-t').value }); closeSheet(); toast('Cambios guardados ✓'); await loadMonth(S.mes); }
       catch (e) { toast(e.message, true); } break;
     }
     case 'editDel': {
       const x = m.movs.find(z => z.row === Number(row)); if (!confirm(`¿Eliminar «${x.c}» por ${money(x.v)}?`)) break;
       try { await api('delete', { mes: S.mes, row: Number(row), esperado: { c: x.c, v: x.v } }); closeSheet(); toast('Eliminado'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
     }
-    case 'ingreso': { const i = m.ingresos.find(z => z.row === Number(row)); S._row = Number(row); sheetMonto(i.c, 'Valor recibido', i.r ?? i.p, 'ingresoSave'); break; }
-    case 'ingresoSave': try { await api('setIncome', { mes: S.mes, row: S._row, real: Number($('#m-v').value) }); closeSheet(); toast('Ingreso registrado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
-    case 'nuevoIngreso': sheetMonto('Nuevo ingreso', 'Valor recibido', '', 'ingresoNuevoSave', '<label>Concepto</label><input class="field" id="m-c" placeholder="Ej. Venta, bono, reembolso" maxlength="60">'); break;
-    case 'ingresoNuevoSave': try { await api('addIncome', { mes: S.mes, concepto: $('#m-c').value, real: Number($('#m-v').value) }); closeSheet(); toast('Ingreso agregado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
-    case 'aporte': S._row = Number(row); sheetMonto('Aporte a ' + m.ahorro.find(z => z.row === Number(row)).n, 'Valor ahorrado', '', 'aporteSave'); break;
-    case 'aporteSave': try { await api('addSaving', { mes: S.mes, row: S._row, monto: Number($('#m-v').value) }); closeSheet(); toast('Aporte registrado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
+    case 'ingreso': { const i = m.ingresos.find(z => z.row === Number(row)); S._row = Number(row); sheetMonto(i.c, 'Valor recibido', i.r ?? i.p, 'ingresoSave', cuentaField('m-cu', i.cuenta || store.get('cuentaIng', ''), 'Entró a la cuenta')); break; }
+    case 'ingresoSave': try { await api('setIncome', { mes: S.mes, row: S._row, real: Number($('#m-v').value), cuenta: cuentaVal('m-cu') }); if (cuentaVal('m-cu')) store.set('cuentaIng', cuentaVal('m-cu')); closeSheet(); toast('Ingreso registrado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
+    case 'nuevoIngreso': sheetMonto('Nuevo ingreso', 'Valor recibido', '', 'ingresoNuevoSave', '<label>Concepto</label><input class="field" id="m-c" placeholder="Ej. Venta, bono, reembolso" maxlength="60">' + cuentaField('m-cu', store.get('cuentaIng', ''), 'Entró a la cuenta')); break;
+    case 'ingresoNuevoSave': try { await api('addIncome', { mes: S.mes, concepto: $('#m-c').value, real: Number($('#m-v').value), cuenta: cuentaVal('m-cu') }); if (cuentaVal('m-cu')) store.set('cuentaIng', cuentaVal('m-cu')); closeSheet(); toast('Ingreso agregado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
+    case 'aporte': S._row = Number(row); sheetMonto('Aporte a ' + m.ahorro.find(z => z.row === Number(row)).n, 'Valor ahorrado', '', 'aporteSave', cuentaField('m-cu', '', 'Sale de la cuenta')); break;
+    case 'aporteSave': try { await api('addSaving', { mes: S.mes, row: S._row, monto: Number($('#m-v').value), cuenta: cuentaVal('m-cu') }); closeSheet(); toast('Aporte registrado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
     case 'descartar': S.queue = S.queue.filter(o => o.id !== el.dataset.id); persist(); render(); break;
     case 'reintentar': { const o = S.queue.find(z => z.id === el.dataset.id); if (o) { delete o.error; persist(); flushQueue(); } break; }
   }
@@ -588,6 +698,8 @@ document.addEventListener('change', ev => {
   const el = ev.target;
   if (el.dataset?.a === 'fecha' && el.value) { S.entry.fecha = el.value; const i = Number(el.value.slice(5, 7)) - 1; if (MESES[i] !== S.mes) loadMonth(MESES[i]); else render(); }
   if (el.dataset?.a === 'cuenta') { S.entry.cuenta = el.value; store.set('cuenta', el.value); render(); }
+  if (el.dataset?.a === 'destino') { S.entry.destino = el.value; render(); }
+  if (el.id === 'e-t') { const w = $('#e-dw'); if (w) w.style.display = el.value === 'Transferencia' ? '' : 'none'; }
 });
 function fechaParaMes(i) {
   const hoy = new Date(); const y = S.config.year;
@@ -617,6 +729,12 @@ function demoApi(action, d) {
         case 'update': case 'delete': { const i = m.movs.findIndex(z => z.row === d.row); if (action === 'delete') m.movs.splice(i, 1); else Object.assign(m.movs[i], { c: d.concepto, v: d.valor, cat: d.categoria, f: d.fecha, cuenta: d.cuenta, tipo: d.tipo }); return res({ ok: true }); }
         case 'setIncome': { const i = m.ingresos.find(z => z.row === d.row); m.kpi.ingReal += d.real - (i.r || 0); i.r = d.real; return res({ ok: true }); }
         case 'addIncome': m.ingresos.push({ row: 30, c: d.concepto, p: 0, r: d.real }); m.kpi.ingReal += d.real; return res({ ok: true });
+        case 'accounts': return res({ ok: true, cuentas: DEMO.cuentas });
+        case 'setOpening': { const c = DEMO.cuentas.lista.find(z => z.n === d.cuenta); const dif = d.valor - c.ini; c.ini = d.valor; c.saldo += dif; DEMO.cuentas.total.saldo += dif; DEMO.cuentas.total.ini += dif; return res({ ok: true }); }
+        case 'addFixed': { const row = 5 + m.fijos.length; m.fijos.push({ row, c: d.concepto, p: d.presupuesto, cat: d.categoria, dia: d.dia || 0, estado: 'Pendiente', real: null, cuenta: d.cuenta || '' }); m.fijosTot.total += d.presupuesto; m.fijosTot.pendiente += d.presupuesto; m.kpi.pendientes += d.presupuesto; return res({ ok: true, meses: d.alcance === 'este' ? 1 : d.alcance === 'todos' ? 12 : 12 - MESES.indexOf(d.mes) }); }
+        case 'editFixed': { const f = m.fijos.find(z => z.row === d.row); Object.assign(f, { c: d.concepto, p: d.presupuesto, cat: d.categoria, dia: d.dia || 0, cuenta: d.cuenta || '' }); return res({ ok: true, meses: d.alcance === 'este' ? 1 : 12 - MESES.indexOf(d.mes) }); }
+        case 'delFixed': { const i = m.fijos.findIndex(z => z.row === d.row); const f = m.fijos[i]; m.fijosTot.total -= f.p; m.fijosTot.pendiente -= f.p; m.kpi.pendientes -= f.p; m.fijos.splice(i, 1); return res({ ok: true, meses: 1 }); }
+        case 'copyFixed': return res({ ok: true, meses: 1, conDatos: [] });
         case 'addSaving': { const a = m.ahorro.find(z => z.row === d.row); a.r += d.monto; a.pc = a.p ? a.r / a.p : 0; m.kpi.ahorro += d.monto; m.ahorroTot.r += d.monto; return res({ ok: true }); }
       }
       res({ ok: true });
