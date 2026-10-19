@@ -134,3 +134,22 @@ button{cursor:pointer;border:0;background:none}
 .setup h1{font-size:28px;margin:10px 0 6px;letter-spacing:-.02em}
 .logo{width:56px;height:56px;border-radius:16px}
 svg text{font-family:inherit}
+
+/* ---------- asistente de primera vez ---------- */
+.wz{padding:6px 2px 110px}
+.wz h1{font-size:25px;letter-spacing:-.02em;margin:4px 0 8px}
+.wz-prog{display:flex;gap:4px;margin-top:8px}
+.wz-prog i{flex:1;height:4px;border-radius:3px;background:var(--s3)}
+.wz-prog i.on{background:var(--acc)}
+.wz-row{display:flex;gap:8px;align-items:flex-start;margin-bottom:10px}
+.wz-main{flex:1;display:grid;gap:8px;min-width:0}
+.wz-cat{grid-template-columns:1fr auto;align-items:center}
+.wz-chk{display:flex;align-items:center;gap:6px;color:var(--mu);font-size:14px;white-space:nowrap}
+.wz-chk input,.wz-check input{width:20px;height:20px;accent-color:var(--acc)}
+.wz-x{width:40px;height:44px;border-radius:12px;color:var(--dim);background:var(--s1);border:1px solid var(--line);font-size:15px;flex:none}
+.wz-card{display:grid;gap:8px}
+.wz-card .field{margin:0}
+.wz-check{display:flex;gap:12px;align-items:center}
+.wz-bar{position:sticky;bottom:0;display:flex;gap:10px;padding:12px 0 calc(var(--safe-b) + 6px);margin-top:18px;background:linear-gradient(to top,var(--bg) 70%,transparent)}
+.wz-bar .btn{flex:1}
+.wz-two{grid-template-columns:1.25fr 1fr}

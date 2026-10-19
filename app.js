@@ -1,6 +1,6 @@
 /* Finanzas · app web instalable (PWA). Sin dependencias: HTML + JS puro. */
 'use strict';
-const APP_VERSION = '6';
+const APP_VERSION = '7';
 
 // ------------------------------------------------------------------ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -70,15 +70,15 @@ const errorTexto = e => ({
   unauthorized: 'La clave no coincide con la del script. Usa «Diagnosticar la conexión» en Ajustes.',
   clave_no_configurada: 'En el script la CLAVE sigue siendo la de ejemplo: cámbiala, guarda y publica una Nueva versión.',
   clave_corta: 'La CLAVE del script tiene menos de 10 caracteres. Usa una más larga y publica una Nueva versión.',
-}[e] || e || 'Error desconocido');
+}[e] || (/authori[sz]ation|autoriza/i.test(e || '') ? 'Falta autorizar permisos nuevos en el script: en Apps Script ejecuta la función autorizarPermisos y publica una Nueva versión.' : (e || 'Error desconocido')));
 const limpiarClave = k => String(k || '').replace(/[\s\u200B-\u200D\uFEFF\u00A0'"\u2018\u2019\u201C\u201D]/g, '');
 
 class ApiError extends Error { constructor(m, network) { super(m); this.network = !!network; } }
 
-async function api(action, data = {}) {
+async function api(action, data = {}, ms = 30000) {
   if (S.cfg?.demo) return demoApi(action, data);
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), 30000);
+  const t = setTimeout(() => ctl.abort(), ms);
   let r;
   try {
     r = await fetch(S.cfg.url, {
@@ -115,6 +115,7 @@ async function loadAll(force = false) {
     toast(e.message, true);
   }
   S.loading = false; render();
+  maybeWizard();
   flushQueue();
 }
 
@@ -195,6 +196,7 @@ function renderNav() {
 
 function render() {
   if (!S.cfg) { $('#top').innerHTML = ''; $('#nav').innerHTML = ''; return renderSetup(); }
+  if (S.wz?.on) return renderWizard();
   renderTop(); renderNav();
   const v = $('#view');
   const m = S.months[S.mes || nowMes()];
@@ -487,6 +489,7 @@ function sheetSettings() {
     <div style="height:16px"></div><button class="btn" data-a="saveCfg">Probar y guardar</button>
     <div style="height:10px"></div><button class="btn sec" data-a="diag">Diagnosticar la conexión</button>
     <div style="height:10px"></div><button class="btn sec" data-a="demo">Ver con datos de ejemplo</button>
+    ${S.cfg && S.config ? `<div style="height:10px"></div><button class="btn sec" data-a="copias">Copias de seguridad</button><div style="height:10px"></div><button class="btn sec" data-a="wzStart">Asistente de configuración</button>` : ''}
     ${S.cfg ? `<div style="height:10px"></div><button class="btn danger" data-a="logout">Desconectar este dispositivo</button>` : ''}
     <p class="small dim" style="margin:14px 0 0">Versión de la app: ${APP_VERSION}. Los datos viven solo en tu Google Sheets. En este dispositivo se guarda la URL, la clave y una copia para ver sin conexión.</p>`);
 }
@@ -563,7 +566,7 @@ async function saveCfg() {
   try {
     const r = await api('bootstrap', {});
     S.config = r.config; S.mes = r.month.mes; S.months = { [r.month.mes]: r.month }; S.year = null; S.stamp = Date.now(); S.offline = false;
-    store.set('cfg', S.cfg); persist(); closeSheet(); toast('Conectado ✓'); render();
+    store.set('cfg', S.cfg); persist(); closeSheet(); toast('Conectado ✓'); render(); maybeWizard();
   } catch (e) {
     S.cfg = prev; toast(e.message, true); if (btn) { btn.disabled = false; btn.textContent = 'Probar y guardar'; }
   }
@@ -748,6 +751,9 @@ function demoApi(action, d) {
         case 'setIncome': { const i = m.ingresos.find(z => z.row === d.row); m.kpi.ingReal += d.real - (i.r || 0); i.r = d.real; return res({ ok: true }); }
         case 'addIncome': m.ingresos.push({ row: 30, c: d.concepto, p: 0, r: d.real }); m.kpi.ingReal += d.real; return res({ ok: true });
         case 'accounts': return res({ ok: true, cuentas: DEMO.cuentas });
+        case 'backupStatus': case 'backupNow': case 'backupOn': case 'backupOff': { DEMO.copias = DEMO.copias || { permisos: true, activa: true, ultima: new Date(Date.now() - 9 * 864e5).toISOString(), total: 3, carpeta: '', conservar: 12 };
+          if (action === 'backupNow') { DEMO.copias.ultima = new Date().toISOString(); DEMO.copias.total = Math.min(12, DEMO.copias.total + 1); } if (action === 'backupOn') DEMO.copias.activa = true; if (action === 'backupOff') DEMO.copias.activa = false;
+          return res({ ok: true, copias: DEMO.copias }); }
         case 'setOpening': { const c = DEMO.cuentas.lista.find(z => z.n === d.cuenta); const dif = d.valor - c.ini; c.ini = d.valor; c.saldo += dif; DEMO.cuentas.total.saldo += dif; DEMO.cuentas.total.ini += dif; return res({ ok: true }); }
         case 'addFixed': { const row = 5 + m.fijos.length; m.fijos.push({ row, c: d.concepto, p: d.presupuesto, cat: d.categoria, dia: d.dia || 0, estado: 'Pendiente', real: null, cuenta: d.cuenta || '' }); m.fijosTot.total += d.presupuesto; m.fijosTot.pendiente += d.presupuesto; m.kpi.pendientes += d.presupuesto; return res({ ok: true, meses: d.alcance === 'este' ? 1 : d.alcance === 'todos' ? 12 : 12 - MESES.indexOf(d.mes) }); }
         case 'editFixed': { const f = m.fijos.find(z => z.row === d.row); Object.assign(f, { c: d.concepto, p: d.presupuesto, cat: d.categoria, dia: d.dia || 0, cuenta: d.cuenta || '' }); return res({ ok: true, meses: d.alcance === 'este' ? 1 : 12 - MESES.indexOf(d.mes) }); }
