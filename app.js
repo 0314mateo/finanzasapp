@@ -1,6 +1,6 @@
 /* Finanzas · app web instalable (PWA). Sin dependencias: HTML + JS puro. */
 'use strict';
-const APP_VERSION = '7';
+const APP_VERSION = '8';
 
 // ------------------------------------------------------------------ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -523,6 +523,21 @@ function sheetFijoForm(f) {
     ${nuevo ? '' : '<div style="height:10px"></div><button class="btn danger" data-a="fijoBorrar">Quitar este gasto fijo</button>'}`);
 }
 
+function sheetIngresoForm(i) {
+  const cfg = S.config, nuevo = !i;
+  const x = i || { c: '', p: '', cuenta: '' };
+  S._ingRow = i ? i.row : null;
+  openSheet(`<h2>${nuevo ? 'Nuevo ingreso mensual' : 'Editar ingreso mensual'}</h2>
+    <label>Nombre</label><input class="field" id="g-c" value="${esc(x.c)}" maxlength="60" placeholder="Ej. Salario, Arriendo recibido">
+    <label>Valor esperado cada mes</label><input class="field num" id="g-p" type="number" inputmode="numeric" value="${x.p === 0 ? '' : x.p}" placeholder="0">
+    ${cuentaField('g-cu', x.cuenta || store.get('cuentaIng', ''), 'Entra a la cuenta')}
+    <label>${nuevo ? 'Aplicar a' : 'Aplicar el cambio a'}</label>
+    <select class="field" id="g-al"><option value="siguientes">Este mes y los siguientes</option><option value="todos">Todo el año</option><option value="este">Solo este mes</option></select>
+    <div class="small dim" style="margin-top:6px">${nuevo ? 'Se agrega en cada mes elegido donde todavía no exista.' : 'En los otros meses se busca el ingreso por su nombre. Lo que ya recibiste no se modifica.'}</div>
+    <div style="height:16px"></div><button class="btn" data-a="ingGuardar">${nuevo ? 'Agregar' : 'Guardar cambios'}</button>
+    ${nuevo ? '' : '<div style="height:10px"></div><button class="btn danger" data-a="ingBorrar">Quitar este ingreso</button>'}`);
+}
+
 function sheetEditar(row) {
   const m = S.months[S.mes]; const x = m.movs.find(z => z.row === Number(row)); if (!x) return;
   const cfg = S.config;
@@ -538,9 +553,9 @@ function sheetEditar(row) {
     <div style="height:10px"></div><button class="btn danger" data-a="editDel" data-row="${x.row}">Eliminar movimiento</button>`);
 }
 
-function sheetMonto(title, label, def, action, extra = '') {
+function sheetMonto(title, label, def, action, extra = '', pie = '') {
   openSheet(`<h2>${esc(title)}</h2><label>${esc(label)}</label><input class="field num" id="m-v" type="number" inputmode="numeric" value="${def ?? ''}" placeholder="0">${extra}
-    <div style="height:16px"></div><button class="btn" data-a="${action}">Guardar</button>`, r => setTimeout(() => $('#m-v', r)?.focus(), 250));
+    <div style="height:16px"></div><button class="btn" data-a="${action}">Guardar</button>${pie}`, r => setTimeout(() => $('#m-v', r)?.focus(), 250));
 }
 
 // ------------------------------------------------------------------ configuración inicial
@@ -688,9 +703,27 @@ document.addEventListener('click', async ev => {
       const x = m.movs.find(z => z.row === Number(row)); if (!confirm(`¿Eliminar «${x.c}» por ${money(x.v)}?`)) break;
       try { await api('delete', { mes: S.mes, row: Number(row), esperado: { c: x.c, v: x.v } }); closeSheet(); toast('Eliminado'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
     }
-    case 'ingreso': { const i = m.ingresos.find(z => z.row === Number(row)); S._row = Number(row); sheetMonto(i.c, 'Valor recibido', i.r ?? i.p, 'ingresoSave', cuentaField('m-cu', i.cuenta || store.get('cuentaIng', ''), 'Entró a la cuenta')); break; }
+    case 'ingreso': { const i = m.ingresos.find(z => z.row === Number(row)); S._row = Number(row); sheetMonto(i.c, 'Valor recibido', i.r ?? i.p, 'ingresoSave', cuentaField('m-cu', i.cuenta || store.get('cuentaIng', ''), 'Entró a la cuenta'), `<div style="height:10px"></div><button class="btn sec" data-a="ingEditar" data-row="${i.row}">Editar este ingreso (nombre, valor, meses)</button>`); break; }
     case 'ingresoSave': try { await api('setIncome', { mes: S.mes, row: S._row, real: Number($('#m-v').value), cuenta: cuentaVal('m-cu') }); if (cuentaVal('m-cu')) store.set('cuentaIng', cuentaVal('m-cu')); closeSheet(); toast('Ingreso registrado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
-    case 'nuevoIngreso': sheetMonto('Nuevo ingreso', 'Valor recibido', '', 'ingresoNuevoSave', '<label>Concepto</label><input class="field" id="m-c" placeholder="Ej. Venta, bono, reembolso" maxlength="60">' + cuentaField('m-cu', store.get('cuentaIng', ''), 'Entró a la cuenta')); break;
+    case 'nuevoIngreso': sheetMonto('Nuevo ingreso', 'Valor recibido', '', 'ingresoNuevoSave', '<label>Concepto</label><input class="field" id="m-c" placeholder="Ej. Venta, bono, reembolso" maxlength="60">' + cuentaField('m-cu', store.get('cuentaIng', ''), 'Entró a la cuenta'), '<div style="height:10px"></div><button class="btn sec" data-a="ingNuevoPlan">En cambio, crear un ingreso que se repite cada mes</button>'); break;
+    case 'ingEditar': sheetIngresoForm(m.ingresos.find(z => z.row === Number(row))); break;
+    case 'ingNuevoPlan': sheetIngresoForm(null); break;
+    case 'ingGuardar': {
+      const datos = { mes: S.mes, concepto: $('#g-c').value, presupuesto: Number($('#g-p').value) || 0, cuenta: cuentaVal('g-cu'), alcance: $('#g-al').value };
+      if (!datos.concepto.trim()) { toast('Escribe el nombre del ingreso', true); break; }
+      try {
+        const r = await api(S._ingRow ? 'editIncome' : 'addIncomePlan', S._ingRow ? { ...datos, row: S._ingRow } : datos);
+        if (datos.cuenta) store.set('cuentaIng', datos.cuenta);
+        closeSheet();
+        toast(r.meses ? `${S._ingRow ? 'Actualizado' : 'Agregado'} en ${r.meses} ${r.meses === 1 ? 'mes' : 'meses'} ✓` : 'Ese ingreso ya existía en esos meses');
+        await loadMonth(S.mes);
+      } catch (e) { toast(e.message, true); } break;
+    }
+    case 'ingBorrar': {
+      const i = m.ingresos.find(x => x.row === S._ingRow); const al = $('#g-al').value;
+      if (!confirm(`¿Quitar «${i.c}» ${al === 'este' ? 'solo de ' + S.mes : al === 'todos' ? 'de todo el año' : 'de ' + S.mes + ' en adelante'}? Los meses donde ya recibiste dinero se conservan.`)) break;
+      try { const r = await api('delIncome', { mes: S.mes, row: S._ingRow, alcance: al }); closeSheet(); toast(`Quitado de ${r.meses} ${r.meses === 1 ? 'mes' : 'meses'}`); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
+    }
     case 'ingresoNuevoSave': try { await api('addIncome', { mes: S.mes, concepto: $('#m-c').value, real: Number($('#m-v').value), cuenta: cuentaVal('m-cu') }); if (cuentaVal('m-cu')) store.set('cuentaIng', cuentaVal('m-cu')); closeSheet(); toast('Ingreso agregado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
     case 'aporte': S._row = Number(row); sheetMonto('Aporte a ' + m.ahorro.find(z => z.row === Number(row)).n, 'Valor ahorrado', '', 'aporteSave', cuentaField('m-cu', '', 'Sale de la cuenta')); break;
     case 'aporteSave': try { await api('addSaving', { mes: S.mes, row: S._row, monto: Number($('#m-v').value), cuenta: cuentaVal('m-cu') }); closeSheet(); toast('Aporte registrado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
@@ -749,6 +782,9 @@ function demoApi(action, d) {
           return res({ ok: true }); }
         case 'update': case 'delete': { const i = m.movs.findIndex(z => z.row === d.row); if (action === 'delete') m.movs.splice(i, 1); else Object.assign(m.movs[i], { c: d.concepto, v: d.valor, cat: d.categoria, f: d.fecha, cuenta: d.cuenta, tipo: d.tipo }); return res({ ok: true }); }
         case 'setIncome': { const i = m.ingresos.find(z => z.row === d.row); m.kpi.ingReal += d.real - (i.r || 0); i.r = d.real; return res({ ok: true }); }
+        case 'editIncome': { const i = m.ingresos.find(z => z.row === d.row); Object.assign(i, { c: d.concepto, p: d.presupuesto, cuenta: d.cuenta || '' }); return res({ ok: true, meses: d.alcance === 'este' ? 1 : d.alcance === 'todos' ? 12 : 12 - MESES.indexOf(d.mes) }); }
+        case 'delIncome': { const i = m.ingresos.findIndex(z => z.row === d.row); m.ingresos.splice(i, 1); return res({ ok: true, meses: 1 }); }
+        case 'addIncomePlan': { m.ingresos.push({ row: 30, c: d.concepto, p: d.presupuesto, r: null, cuenta: d.cuenta || '' }); return res({ ok: true, meses: d.alcance === 'este' ? 1 : 12 - MESES.indexOf(d.mes) }); }
         case 'addIncome': m.ingresos.push({ row: 30, c: d.concepto, p: 0, r: d.real }); m.kpi.ingReal += d.real; return res({ ok: true });
         case 'accounts': return res({ ok: true, cuentas: DEMO.cuentas });
         case 'backupStatus': case 'backupNow': case 'backupOn': case 'backupOff': { DEMO.copias = DEMO.copias || { permisos: true, activa: true, ultima: new Date(Date.now() - 9 * 864e5).toISOString(), total: 3, carpeta: '', conservar: 12 };
