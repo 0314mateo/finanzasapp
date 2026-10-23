@@ -1,17 +1,12 @@
 /* Finanzas · app web instalable (PWA). Sin dependencias: HTML + JS puro. */
 'use strict';
-const APP_VERSION = '15';
+const APP_VERSION = '16';
 
 // ------------------------------------------------------------------ utilidades
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => (n < 0 ? '−' : '') + '$' + Math.abs(Math.round(n || 0)).toLocaleString('es-CO');
-const short = n => {
-  const a = Math.abs(n || 0), s = n < 0 ? '−' : '';
-  if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace('.', ',') + ' M';
-  if (a >= 1e3) return s + '$' + Math.round(a / 1e3) + ' mil';
-  return s + '$' + Math.round(a);
-};
+const short = n => money(n);   // siempre el valor completo (antes abreviaba: $5,2 M)
 const pct = (n, d = 0) => ((n || 0) * 100).toFixed(d).replace('.', ',') + '%';
 const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 const uid = () => 'mv-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
@@ -324,10 +319,10 @@ function vResumen(m) {
     <div class="big num ${k.disponible < 0 ? 'neg' : ''}">${money(k.disponible)}</div>
     <div class="sub"><span>Libre tras fijos pendientes <b class="num ${k.libre < 0 ? 'neg' : ''}">${money(k.libre)}</b></span><span>Fijos pendientes <b class="num">${money(k.pendientes)}</b></span></div></div>
   ${alertas.length ? `<div class="row" style="flex-wrap:wrap;margin:-2px 0 12px;gap:6px">${alertas.map(a => `<span class="pill ${a[0]}">${esc(a[1])}</span>`).join('')}</div>` : ''}
-  <div class="grid3" style="margin-bottom:12px">
+  <div class="grid2" style="margin-bottom:12px">
     <div class="stat"><div class="k">Ingresos</div><div class="v num">${short(k.ingReal)}</div><div class="s">de ${short(k.ingPres)}</div></div>
     <div class="stat"><div class="k">Gastado</div><div class="v num">${short(k.gastado)}</div><div class="s">${pct(k.pGastado)} del ingreso</div></div>
-    <div class="stat"><div class="k">Ahorro</div><div class="v num">${short(k.ahorro)}</div><div class="s">${pct(k.pAhorro)} del ingreso</div></div>
+    <div class="stat" style="grid-column:1/-1"><div class="k">Ahorro</div><div class="v num">${short(k.ahorro)}</div><div class="s">${pct(k.pAhorro)} del ingreso</div></div>
   </div>
   <div class="card"><h3>Gasto por categoría <span>${money(tot)}</span></h3>
     ${tot > 0 ? donut(items, tot, 'Gastado') + `<div class="legend">${items.map(i => `<div><i class="dot" style="background:${i.c}"></i><div class="ell">${esc(i.n)}</div><span class="num">${pct(i.v / tot)}</span></div>`).join('')}</div>` : '<div class="empty">Sin gastos este mes</div>'}
