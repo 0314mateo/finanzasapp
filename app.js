@@ -1,6 +1,6 @@
 /* Finanzas · app web instalable (PWA). Sin dependencias: HTML + JS puro. */
 'use strict';
-const APP_VERSION = '14';
+const APP_VERSION = '15';
 
 // ------------------------------------------------------------------ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -426,10 +426,11 @@ function sheetCuenta(n) {
 function vAnio() {
   const y = S.year;
   if (!y) { loadYear(); return '<div class="sk"></div><div class="sk"></div><div class="sk"></div>'; }
-  const k = y.kpi;
+  const k = y.kpi, ms = y.meses.slice((y.inicioN || 1) - 1), ini = y.inicio || 'Enero';
   const top = [...y.cats].filter(c => c.real > 0 || c.pres > 0).sort((a, b) => b.real - a.real);
   const estCol = { Excedido: 'bad', 'En riesgo': 'warn', Dentro: 'ok' };
   return `
+  <div class="small muted" style="margin:0 2px 8px">Contando desde <b style="color:var(--tx)">${esc(ini)}</b> hasta ${esc(y.corte)} · <a href="#" data-a="inicioEditar" style="color:var(--ac)">Cambiar</a></div>
   <div class="card hero"><div class="lbl">Disponible acumulado a ${esc(y.corte)}</div><div class="big num ${k.disponible < 0 ? 'neg' : ''}">${money(k.disponible)}</div>
     <div class="sub">${k.saldoIni ? `<span>Saldos iniciales <b class="num">${short(k.saldoIni)}</b></span>` : ''}<span>Tasa de ahorro <b>${pct(k.tasaAhorro, 1)}</b></span><span>Ejecución <b>${pct(k.ejec)}</b></span></div></div>
   <div class="grid2" style="margin-bottom:12px">
@@ -438,13 +439,13 @@ function vAnio() {
     <div class="stat"><div class="k">Ahorro real</div><div class="v num">${short(k.ahReal)}</div><div class="s">de ${short(k.ahPres)} presup.</div></div>
     <div class="stat"><div class="k">Fijos pendientes</div><div class="v num">${short(k.pendientes)}</div><div class="s">libre ${short(k.libre)}</div></div></div>
   <div class="card"><h3>Mes a mes <span class="row" style="gap:10px"><span><i class="dot" style="background:var(--ing)"></i> Ingresos</span><span><i class="dot" style="background:var(--acc)"></i> Gastos</span><span><i class="dot" style="background:var(--aho)"></i> Ahorro</span></span></h3>
-    ${groupedBars(y.meses, ['ingReal', 'gastReal', 'ahReal'], ['#8bc34a', '#f46524', '#8fb0c9'])}</div>
-  <div class="card"><h3>Tasa de ahorro mensual</h3>${sparkline(y.meses.map(m => Math.max(0, m.pAhorro)))}</div>
+    ${groupedBars(ms, ['ingReal', 'gastReal', 'ahReal'], ['#8bc34a', '#f46524', '#8fb0c9'])}</div>
+  <div class="card"><h3>Tasa de ahorro mensual</h3>${sparkline(ms.map(m => Math.max(0, m.pAhorro)))}</div>
   <div class="card"><h3>Gasto por categoría <span>acumulado</span></h3>
     ${top.map(c => { const r = c.pres > 0 ? c.real / c.pres : 0; return `<div class="item"><div class="row between"><div class="row" style="gap:8px"><i class="dot" style="background:${catColor(c.n)}"></i><b style="font-weight:600">${esc(c.n)}</b></div>
       <span class="num small"><b>${money(c.real)}</b> <span class="muted">${pct(c.pct)}</span></span></div>
       ${c.pres > 0 ? `<div class="bar ${barClass(r)}" style="margin-top:8px"><i style="width:${clamp(r, 0, 1) * 100}%"></i></div><div class="small muted" style="margin-top:4px">${pct(r)} del presupuesto de ${short(c.pres)}</div>` : '<div class="small dim" style="margin-top:2px">Sin presupuesto</div>'}</div>`; }).join('') || '<div class="empty">Sin datos</div>'}</div>
-  <div class="card"><h3>Metas del año <span>${pct(k.cumplimiento)}</span></h3>
+  <div class="card"><h3>Metas hasta diciembre <span>${pct(k.cumplimiento)}</span></h3>
     ${y.metas.map(g => `<div class="item"><div class="row between"><b style="font-weight:600">${esc(g.n)}</b><span class="num small muted">${short(g.acum)} / ${short(g.obj)}</span></div>
       <div class="bar aho" style="margin:8px 0 6px"><i style="width:${clamp(g.pct, 0, 1) * 100}%"></i></div>
       <div class="small muted">Faltan <b class="num" style="color:var(--tx)">${short(g.saldo)}</b>${g.req ? ` · para llegar necesitarías ${short(g.req)} por mes` : ''}</div>
@@ -566,6 +567,14 @@ function sheetMetaForm(meta) {
     <div class="small dim" style="margin-top:6px">${nuevo ? 'Después registras cada aporte con «+ Aporte» en la meta. Puedes tener hasta 8 metas.' : 'El nombre y el objetivo cambian en todos los meses. El aporte planeado solo se cambia si modificas ese valor.'}</div>
     <div style="height:16px"></div><button class="btn" data-a="metaGuardar">${nuevo ? 'Agregar meta' : 'Guardar cambios'}</button>
     ${nuevo ? '' : '<div style="height:10px"></div><button class="btn danger" data-a="metaBorrar">Quitar esta meta</button>'}`);
+}
+
+function sheetInicio() {
+  const y = S.year, ini = y?.inicio || 'Enero';
+  openSheet(`<h2>¿Desde qué mes cuentas?</h2>
+    <p class="muted small">Elige el mes en que empezaste a usar el sistema. Los totales del año, la tasa de ahorro y las metas cuentan desde ese mes hasta diciembre.</p>
+    <label>Mes de inicio</label><select class="field" id="i-m">${S.config.meses.map(x => `<option ${x === ini ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+    <div style="height:16px"></div><button class="btn" data-a="inicioGuardar">Guardar</button>`);
 }
 
 function sheetOcio() {
@@ -763,6 +772,8 @@ document.addEventListener('click', async ev => {
     case 'ingreso': { const i = m.ingresos.find(z => z.row === Number(row)); S._row = Number(row); sheetMonto(i.c, 'Valor recibido', i.r ?? i.p, 'ingresoSave', cuentaField('m-cu', i.cuenta || store.get('cuentaIng', ''), 'Entró a la cuenta'), `<div style="height:10px"></div><button class="btn sec" data-a="ingEditar" data-row="${i.row}">Editar este ingreso (nombre, valor, meses)</button>`); break; }
     case 'ingresoSave': try { await api('setIncome', { mes: S.mes, row: S._row, real: Number($('#m-v').value), cuenta: cuentaVal('m-cu') }); if (cuentaVal('m-cu')) store.set('cuentaIng', cuentaVal('m-cu')); closeSheet(); toast('Ingreso registrado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
     case 'nuevoIngreso': sheetMonto('Nuevo ingreso', 'Valor recibido', '', 'ingresoNuevoSave', '<label>Concepto</label><input class="field" id="m-c" placeholder="Ej. Venta, bono, reembolso" maxlength="60">' + cuentaField('m-cu', store.get('cuentaIng', ''), 'Entró a la cuenta'), '<div style="height:10px"></div><button class="btn sec" data-a="ingNuevoPlan">En cambio, crear un ingreso que se repite cada mes</button>'); break;
+    case 'inicioEditar': sheetInicio(); break;
+    case 'inicioGuardar': try { await api('setStart', { mes: $('#i-m').value }); closeSheet(); toast('Mes de inicio actualizado ✓'); S.year = null; S.months = {}; await loadAll(true); } catch (e) { toast(e.message, true); } break;
     case 'ocioEditar': sheetOcio(); break;
     case 'ocioGuardar': {
       const monto = $('#o-modo').value === 'monto' ? $('#o-v').value : null;
@@ -892,6 +903,7 @@ function demoApi(action, d) {
           return res({ ok: true }); }
         case 'update': case 'delete': { const i = m.movs.findIndex(z => z.row === d.row); if (action === 'delete') m.movs.splice(i, 1); else Object.assign(m.movs[i], { c: d.concepto, v: d.valor, cat: d.categoria, f: d.fecha, cuenta: d.cuenta, tipo: d.tipo }); return res({ ok: true }); }
         case 'setIncome': { const i = m.ingresos.find(z => z.row === d.row); m.kpi.ingReal += d.real - (i.r || 0); i.r = d.real; return res({ ok: true }); }
+        case 'setStart': { DEMO.year.inicio = d.mes; DEMO.year.inicioN = MESES.indexOf(d.mes) + 1; return res({ ok: true, inicio: d.mes }); }
         case 'setOcio': { const o = m.ocio; o.auto = d.monto === null; if (d.monto !== null) o.pres = d.monto; o.rest = o.pres - o.real; o.pConsumo = o.pres ? o.real / o.pres : 0; return res({ ok: true, meses: 1 }); }
         case 'editIncome': { const i = m.ingresos.find(z => z.row === d.row); Object.assign(i, { c: d.concepto, p: d.presupuesto, cuenta: d.cuenta || '' }); return res({ ok: true, meses: d.alcance === 'este' ? 1 : d.alcance === 'todos' ? 12 : 12 - MESES.indexOf(d.mes) }); }
         case 'delIncome': { const i = m.ingresos.findIndex(z => z.row === d.row); m.ingresos.splice(i, 1); return res({ ok: true, meses: 1 }); }
