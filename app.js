@@ -1,6 +1,6 @@
 /* Finanzas · app web instalable (PWA). Sin dependencias: HTML + JS puro. */
 'use strict';
-const APP_VERSION = '9';
+const APP_VERSION = '10';
 
 // ------------------------------------------------------------------ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -348,6 +348,7 @@ function vResumen(m) {
     ${m.ahorro.map(a => `<div class="item"><div class="row between"><b style="font-weight:600">${esc(a.n)}</b><span class="num small muted">${money(a.r)} / ${short(a.p)}</span></div>
       <div class="bar aho" style="margin:8px 0 6px"><i style="width:${clamp(a.pc, 0, 1) * 100}%"></i></div>
       <div class="row between"><span class="small muted">${pct(a.pc)} de la meta</span><button class="pill" data-a="aporte" data-row="${a.row}">+ Aporte</button></div></div>`).join('') || '<div class="empty">Sin metas</div>'}
+    <button class="btn sec" style="height:42px;margin-top:12px;font-size:14px" data-a="metaNueva">+ Agregar meta de ahorro o inversión</button>
   </div>
   <div class="card"><h3>Ingresos <span>${money(k.ingReal)} / ${money(k.ingPres)}</span></h3>
     ${m.ingresos.map(i => `<div class="item row between"><div class="grow"><div class="ell" style="font-weight:600">${esc(i.c)}</div><div class="small muted num">Esperado ${money(i.p)}${i.cuenta ? ' · ' + esc(i.cuenta) : ''}</div></div>
@@ -521,6 +522,17 @@ function sheetFijoForm(f) {
     <div class="small dim" style="margin-top:6px">${nuevo ? 'Se agrega como pendiente en cada mes elegido.' : 'En los otros meses se busca el gasto por su nombre. Los ya pagados conservan su pago.'}</div>
     <div style="height:16px"></div><button class="btn" data-a="fijoGuardar">${nuevo ? 'Agregar' : 'Guardar cambios'}</button>
     ${nuevo ? '' : '<div style="height:10px"></div><button class="btn danger" data-a="fijoBorrar">Quitar este gasto fijo</button>'}`);
+}
+
+function sheetMetaForm() {
+  openSheet(`<h2>Nueva meta de ahorro o inversión</h2>
+    <label>Nombre</label><input class="field" id="t-n" maxlength="60" placeholder="Ej. Fondo de emergencia, Viaje, CDT">
+    <label>Objetivo del año</label><input class="field num" id="t-o" type="number" inputmode="numeric" placeholder="Cuánto quieres juntar (opcional)">
+    <label>Aporte planeado por mes</label><input class="field num" id="t-m" type="number" inputmode="numeric" placeholder="Opcional">
+    <label>Aplicar el aporte planeado a</label>
+    <select class="field" id="t-al"><option value="siguientes">Este mes y los siguientes</option><option value="todos">Todo el año</option><option value="este">Solo este mes</option></select>
+    <div class="small dim" style="margin-top:6px">Después registras cada aporte con «+ Aporte» en la meta. Puedes tener hasta 8 metas.</div>
+    <div style="height:16px"></div><button class="btn" data-a="metaGuardar">Agregar meta</button>`);
 }
 
 function sheetIngresoForm(i) {
@@ -706,6 +718,14 @@ document.addEventListener('click', async ev => {
     case 'ingreso': { const i = m.ingresos.find(z => z.row === Number(row)); S._row = Number(row); sheetMonto(i.c, 'Valor recibido', i.r ?? i.p, 'ingresoSave', cuentaField('m-cu', i.cuenta || store.get('cuentaIng', ''), 'Entró a la cuenta'), `<div style="height:10px"></div><button class="btn sec" data-a="ingEditar" data-row="${i.row}">Editar este ingreso (nombre, valor, meses)</button>`); break; }
     case 'ingresoSave': try { await api('setIncome', { mes: S.mes, row: S._row, real: Number($('#m-v').value), cuenta: cuentaVal('m-cu') }); if (cuentaVal('m-cu')) store.set('cuentaIng', cuentaVal('m-cu')); closeSheet(); toast('Ingreso registrado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
     case 'nuevoIngreso': sheetMonto('Nuevo ingreso', 'Valor recibido', '', 'ingresoNuevoSave', '<label>Concepto</label><input class="field" id="m-c" placeholder="Ej. Venta, bono, reembolso" maxlength="60">' + cuentaField('m-cu', store.get('cuentaIng', ''), 'Entró a la cuenta'), '<div style="height:10px"></div><button class="btn sec" data-a="ingNuevoPlan">En cambio, crear un ingreso que se repite cada mes</button>'); break;
+    case 'metaNueva': sheetMetaForm(); break;
+    case 'metaGuardar': {
+      const nombre = $('#t-n').value.trim(); if (!nombre) { toast('Escribe el nombre de la meta', true); break; }
+      try {
+        await api('addGoal', { nombre, objetivo: $('#t-o').value === '' ? null : Number($('#t-o').value), mensual: $('#t-m').value === '' ? 0 : Number($('#t-m').value), mes: S.mes, alcance: $('#t-al').value });
+        closeSheet(); toast('Meta agregada ✓'); await loadAll(true);
+      } catch (e) { toast(e.message, true); } break;
+    }
     case 'ingEditar': sheetIngresoForm(m.ingresos.find(z => z.row === Number(row))); break;
     case 'ingNuevoPlan': sheetIngresoForm(null); break;
     case 'ingGuardar': {
@@ -728,14 +748,17 @@ document.addEventListener('click', async ev => {
     case 'aporte': {
       const meta = m.ahorro.find(z => z.row === Number(row)); S._row = Number(row);
       const destField = cuentaField('m-cd', store.get('ahDest:' + meta.n, ''), 'Pasa a la cuenta de ahorro (opcional)').replace('Sin cuenta', 'No pasa a otra cuenta');
-      sheetMonto('Aporte a ' + meta.n, 'Valor ahorrado', '', 'aporteSave', cuentaField('m-cu', store.get('ahOrig:' + meta.n, ''), 'Sale de la cuenta') + destField + (destField ? '<div class="small dim" style="margin-top:6px">Si el ahorro se guarda en otra cuenta tuya (por ejemplo un bolsillo o una cuenta de ahorros), elígela: el dinero sale de la primera y entra a la segunda.</div>' : '')); break;
+      const cats = S.config.categorias.map(c => c.n), catDef = store.get('ahCat:' + meta.n, '') || (cats.includes('Otros') ? 'Otros' : cats[0]);
+      const catField = `<div id="m-catw" style="${store.get('ahDest:' + meta.n, '') ? '' : 'display:none'}"><label>Categoría del movimiento</label><select class="field" id="m-cat">${cats.map(c => `<option ${c === catDef ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>`;
+      sheetMonto('Aporte a ' + meta.n, 'Valor ahorrado', '', 'aporteSave', cuentaField('m-cu', store.get('ahOrig:' + meta.n, ''), 'Sale de la cuenta') + destField + (destField ? '<div class="small dim" style="margin-top:6px">Si el ahorro se guarda en otra cuenta tuya (por ejemplo un bolsillo o una cuenta de ahorros), elígela: el dinero sale de la primera y entra a la segunda.</div>' + catField : '')); break;
     }
     case 'aporteSave': {
       const meta = m.ahorro.find(z => z.row === S._row), destino = cuentaVal('m-cd') || '', origen = cuentaVal('m-cu');
       const hoy = todayIso(), fecha = hoy.slice(0, 7) === `${S.config.year}-${String(MESES.indexOf(S.mes) + 1).padStart(2, '0')}` ? hoy : `${S.config.year}-${String(MESES.indexOf(S.mes) + 1).padStart(2, '0')}-01`;
       try {
-        await api('addSaving', { mes: S.mes, row: S._row, monto: Number($('#m-v').value), cuenta: origen, destino, id: destino ? uid() : undefined, fecha });
-        if (meta) { store.set('ahDest:' + meta.n, destino); if (origen) store.set('ahOrig:' + meta.n, origen); }
+        const categoria = destino && $('#m-cat') ? $('#m-cat').value : undefined;
+        await api('addSaving', { mes: S.mes, row: S._row, monto: Number($('#m-v').value), cuenta: origen, destino, categoria, id: destino ? uid() : undefined, fecha });
+        if (meta) { store.set('ahDest:' + meta.n, destino); if (origen) store.set('ahOrig:' + meta.n, origen); if (categoria) store.set('ahCat:' + meta.n, categoria); }
         closeSheet(); toast(destino ? `Aporte registrado y pasado a ${destino} ✓` : 'Aporte registrado ✓'); await loadMonth(S.mes);
       } catch (e) { toast(e.message, true); } break;
     }
@@ -765,6 +788,7 @@ document.addEventListener('change', ev => {
   if (el.dataset?.a === 'fecha' && el.value) { S.entry.fecha = el.value; const i = Number(el.value.slice(5, 7)) - 1; if (MESES[i] !== S.mes) loadMonth(MESES[i]); else render(); }
   if (el.dataset?.a === 'cuenta') { S.entry.cuenta = el.value; store.set('cuenta', el.value); render(); }
   if (el.dataset?.a === 'destino') { S.entry.destino = el.value; render(); }
+  if (el.id === 'm-cd') { const w = $('#m-catw'); if (w) w.style.display = el.value ? '' : 'none'; }
   if (el.id === 'e-t') { const w = $('#e-dw'); if (w) w.style.display = el.value === 'Transferencia' ? '' : 'none'; }
 });
 function fechaParaMes(i) {
@@ -797,6 +821,7 @@ function demoApi(action, d) {
         case 'editIncome': { const i = m.ingresos.find(z => z.row === d.row); Object.assign(i, { c: d.concepto, p: d.presupuesto, cuenta: d.cuenta || '' }); return res({ ok: true, meses: d.alcance === 'este' ? 1 : d.alcance === 'todos' ? 12 : 12 - MESES.indexOf(d.mes) }); }
         case 'delIncome': { const i = m.ingresos.findIndex(z => z.row === d.row); m.ingresos.splice(i, 1); return res({ ok: true, meses: 1 }); }
         case 'addIncomePlan': { m.ingresos.push({ row: 30, c: d.concepto, p: d.presupuesto, r: null, cuenta: d.cuenta || '' }); return res({ ok: true, meses: d.alcance === 'este' ? 1 : 12 - MESES.indexOf(d.mes) }); }
+        case 'addGoal': { const m0 = DEMO.config; m0.metas.push(d.nombre); m.ahorro.push({ row: 31 + m.ahorro.length, n: d.nombre, p: d.mensual || 0, r: 0, dif: -(d.mensual || 0), pc: 0, pIngreso: 0 }); return res({ ok: true, meses: d.mensual ? 1 : 0 }); }
         case 'addIncome': m.ingresos.push({ row: 30, c: d.concepto, p: 0, r: d.real }); m.kpi.ingReal += d.real; return res({ ok: true });
         case 'accounts': return res({ ok: true, cuentas: DEMO.cuentas });
         case 'backupStatus': case 'backupNow': case 'backupOn': case 'backupOff': { DEMO.copias = DEMO.copias || { permisos: true, activa: true, ultima: new Date(Date.now() - 9 * 864e5).toISOString(), total: 3, carpeta: '', conservar: 12 };
