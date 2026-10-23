@@ -1,6 +1,6 @@
 /* Finanzas · app web instalable (PWA). Sin dependencias: HTML + JS puro. */
 'use strict';
-const APP_VERSION = '8';
+const APP_VERSION = '9';
 
 // ------------------------------------------------------------------ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -320,9 +320,9 @@ function vResumen(m) {
   if (k.ingReal === 0) alertas.push(['warn', 'Aún no registras ingresos reales']);
   const cats = m.cats.filter(c => c.real > 0 || c.pres > 0).sort((a, b) => (b.pres ? b.real / b.pres : 0) - (a.pres ? a.real / a.pres : 0) || b.real - a.real);
   return `
-  <div class="card hero"><div class="lbl">Disponible libre</div>
-    <div class="big num ${k.libre < 0 ? 'neg' : ''}">${money(k.libre)}</div>
-    <div class="sub"><span>Por asignar <b class="num">${money(k.disponible)}</b></span><span>Fijos pendientes <b class="num">${money(k.pendientes)}</b></span></div></div>
+  <div class="card hero"><div class="lbl">Disponible ahora</div>
+    <div class="big num ${k.disponible < 0 ? 'neg' : ''}">${money(k.disponible)}</div>
+    <div class="sub"><span>Libre tras fijos pendientes <b class="num ${k.libre < 0 ? 'neg' : ''}">${money(k.libre)}</b></span><span>Fijos pendientes <b class="num">${money(k.pendientes)}</b></span></div></div>
   ${alertas.length ? `<div class="row" style="flex-wrap:wrap;margin:-2px 0 12px;gap:6px">${alertas.map(a => `<span class="pill ${a[0]}">${esc(a[1])}</span>`).join('')}</div>` : ''}
   <div class="grid3" style="margin-bottom:12px">
     <div class="stat"><div class="k">Ingresos</div><div class="v num">${short(k.ingReal)}</div><div class="s">de ${short(k.ingPres)}</div></div>
@@ -430,7 +430,7 @@ function vAnio() {
   const estCol = { Excedido: 'bad', 'En riesgo': 'warn', Dentro: 'ok' };
   return `
   <div class="card hero"><div class="lbl">Disponible acumulado a ${esc(y.corte)}</div><div class="big num ${k.disponible < 0 ? 'neg' : ''}">${money(k.disponible)}</div>
-    <div class="sub"><span>Tasa de ahorro <b>${pct(k.tasaAhorro, 1)}</b></span><span>Ejecución <b>${pct(k.ejec)}</b></span></div></div>
+    <div class="sub">${k.saldoIni ? `<span>Saldos iniciales <b class="num">${short(k.saldoIni)}</b></span>` : ''}<span>Tasa de ahorro <b>${pct(k.tasaAhorro, 1)}</b></span><span>Ejecución <b>${pct(k.ejec)}</b></span></div></div>
   <div class="grid2" style="margin-bottom:12px">
     <div class="stat"><div class="k">Ingresos reales</div><div class="v num">${short(k.ingReal)}</div><div class="s">de ${short(k.ingPres)} presup.</div></div>
     <div class="stat"><div class="k">Gastos reales</div><div class="v num">${short(k.gastReal)}</div><div class="s">de ${short(k.gastPres)} presup.</div></div>
@@ -459,7 +459,7 @@ function vHistorial(m) {
   const fila = x => {
     const tr = x.tipo === 'Transferencia';
     return `<button class="mv" data-a="editar" data-row="${x.row}"><span class="ic" style="${tr ? 'color:var(--aho)' : ''}">${tr ? ICONS.swap.replace('<svg', '<svg width="18" height="18"') : `<i class="dot" style="background:${catColor(x.cat)};width:11px;height:11px"></i>`}</span>
-      <div class="grow"><div class="t ell">${esc(x.c)}</div><div class="small muted ell">${tr && S.config.cuentasListas ? `${esc(x.cuenta || '¿?')} → ${esc(x.destino || '¿?')}` : esc(x.cat) + (x.cuenta ? ' · ' + esc(x.cuenta) : '')}${x.control && x.control !== 'OK' ? ` · <span class="neg">${esc(x.control)}</span>` : ''}</div></div>
+      <div class="grow"><div class="t ell">${esc(x.c)}</div><div class="small muted ell">${tr && S.config.cuentasListas ? `${esc(x.cuenta || 'Ahorro')} → ${esc(x.destino || '¿?')}` : esc(x.cat) + (x.cuenta ? ' · ' + esc(x.cuenta) : '')}${x.control && x.control !== 'OK' ? ` · <span class="neg">${esc(x.control)}</span>` : ''}</div></div>
       <div class="a num" style="${tr ? 'color:var(--aho)' : ''}">${money(x.v)}</div></button>`;
   };
   return `
@@ -725,8 +725,20 @@ document.addEventListener('click', async ev => {
       try { const r = await api('delIncome', { mes: S.mes, row: S._ingRow, alcance: al }); closeSheet(); toast(`Quitado de ${r.meses} ${r.meses === 1 ? 'mes' : 'meses'}`); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
     }
     case 'ingresoNuevoSave': try { await api('addIncome', { mes: S.mes, concepto: $('#m-c').value, real: Number($('#m-v').value), cuenta: cuentaVal('m-cu') }); if (cuentaVal('m-cu')) store.set('cuentaIng', cuentaVal('m-cu')); closeSheet(); toast('Ingreso agregado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
-    case 'aporte': S._row = Number(row); sheetMonto('Aporte a ' + m.ahorro.find(z => z.row === Number(row)).n, 'Valor ahorrado', '', 'aporteSave', cuentaField('m-cu', '', 'Sale de la cuenta')); break;
-    case 'aporteSave': try { await api('addSaving', { mes: S.mes, row: S._row, monto: Number($('#m-v').value), cuenta: cuentaVal('m-cu') }); closeSheet(); toast('Aporte registrado ✓'); await loadMonth(S.mes); } catch (e) { toast(e.message, true); } break;
+    case 'aporte': {
+      const meta = m.ahorro.find(z => z.row === Number(row)); S._row = Number(row);
+      const destField = cuentaField('m-cd', store.get('ahDest:' + meta.n, ''), 'Pasa a la cuenta de ahorro (opcional)').replace('Sin cuenta', 'No pasa a otra cuenta');
+      sheetMonto('Aporte a ' + meta.n, 'Valor ahorrado', '', 'aporteSave', cuentaField('m-cu', store.get('ahOrig:' + meta.n, ''), 'Sale de la cuenta') + destField + (destField ? '<div class="small dim" style="margin-top:6px">Si el ahorro se guarda en otra cuenta tuya (por ejemplo un bolsillo o una cuenta de ahorros), elígela: el dinero sale de la primera y entra a la segunda.</div>' : '')); break;
+    }
+    case 'aporteSave': {
+      const meta = m.ahorro.find(z => z.row === S._row), destino = cuentaVal('m-cd') || '', origen = cuentaVal('m-cu');
+      const hoy = todayIso(), fecha = hoy.slice(0, 7) === `${S.config.year}-${String(MESES.indexOf(S.mes) + 1).padStart(2, '0')}` ? hoy : `${S.config.year}-${String(MESES.indexOf(S.mes) + 1).padStart(2, '0')}-01`;
+      try {
+        await api('addSaving', { mes: S.mes, row: S._row, monto: Number($('#m-v').value), cuenta: origen, destino, id: destino ? uid() : undefined, fecha });
+        if (meta) { store.set('ahDest:' + meta.n, destino); if (origen) store.set('ahOrig:' + meta.n, origen); }
+        closeSheet(); toast(destino ? `Aporte registrado y pasado a ${destino} ✓` : 'Aporte registrado ✓'); await loadMonth(S.mes);
+      } catch (e) { toast(e.message, true); } break;
+    }
     case 'descartar': S.queue = S.queue.filter(o => o.id !== el.dataset.id); persist(); render(); break;
     case 'reintentar': { const o = S.queue.find(z => z.id === el.dataset.id); if (o) { delete o.error; persist(); flushQueue(); } break; }
   }
