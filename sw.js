@@ -1,5 +1,5 @@
 // Service worker: deja la app disponible sin conexión. Nunca guarda en caché las llamadas a Google.
-const VERSION = 'finanzas-v10';
+const VERSION = 'finanzas-v11';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'wizard.js', 'demo-data.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
