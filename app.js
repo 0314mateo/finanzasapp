@@ -1,6 +1,6 @@
 /* Finanzas · app web instalable (PWA). Sin dependencias: HTML + JS puro. */
 'use strict';
-const APP_VERSION = '13';
+const APP_VERSION = '14';
 
 // ------------------------------------------------------------------ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -447,7 +447,8 @@ function vAnio() {
   <div class="card"><h3>Metas del año <span>${pct(k.cumplimiento)}</span></h3>
     ${y.metas.map(g => `<div class="item"><div class="row between"><b style="font-weight:600">${esc(g.n)}</b><span class="num small muted">${short(g.acum)} / ${short(g.obj)}</span></div>
       <div class="bar aho" style="margin:8px 0 6px"><i style="width:${clamp(g.pct, 0, 1) * 100}%"></i></div>
-      <div class="small muted">Faltan <b class="num" style="color:var(--tx)">${short(g.saldo)}</b>${g.req ? ` · ${short(g.req)} por mes` : ''}</div></div>`).join('') || '<div class="empty">Sin metas</div>'}</div>`;
+      <div class="small muted">Faltan <b class="num" style="color:var(--tx)">${short(g.saldo)}</b>${g.req ? ` · para llegar necesitarías ${short(g.req)} por mes` : ''}</div>
+      ${g.proy != null && g.obj ? `<div class="small muted" style="margin-top:2px">Con tu plan llegas a <b class="num" style="color:var(--tx)">${short(g.proy)}</b> en diciembre · <b style="color:${g.proy >= g.obj ? 'var(--ing)' : 'var(--acc)'}">${g.proy >= g.obj ? 'cumples el objetivo' : 'faltarían ' + short(g.obj - g.proy)}</b></div>` : ''}</div>`).join('') || '<div class="empty">Sin metas</div>'}</div>`;
 }
 
 // ------------------------------------------------------------------ vista: historial
